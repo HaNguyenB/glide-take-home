@@ -2,7 +2,7 @@
 
 ## Overview
 
-You have been provided with a NextJS TypeScript banking application that has several reported customer issues. Your goal is to **investigate, document root causes, and resolve as many bugs as possible within 48 hours**. Extra credit will be given for adding tests that verify your fixes.
+You have been provided with a NextJS TypeScript banking application that has several reported customer issues. Your goal is to **investigate, document root causes, and resolve as many bugs as possible within 24 hours**. Extra credit will be given for adding tests that verify your fixes.
 
 ## Deliverable
 
