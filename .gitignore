@@ -9,6 +9,7 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+node_portable/
 
 # testing
 /coverage
@@ -48,3 +49,4 @@ bank.db
 # IDE
 .vscode/
 .idea/
+

@@ -9,7 +9,7 @@ export const users = sqliteTable("users", {
   lastName: text("last_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
   dateOfBirth: text("date_of_birth").notNull(),
-  ssn: text("ssn").notNull(),
+  ssn: text("ssn").notNull(), // 11/27/2025: Database schema stores SSN as plain text
   address: text("address").notNull(),
   city: text("city").notNull(),
   state: text("state").notNull(),
