@@ -169,6 +169,12 @@ export const authRouter = router({
       }
       return { user: sanitizeUser(user), token };
     }),
+  // Get current authenticated user
+  me: publicProcedure.query(async ({ ctx }) => {
+    // Returns current user if authenticated, null otherwise
+    return ctx.user ? sanitizeUser(ctx.user) : null;
+  }),
+
   // ISSUE: Logout deletes only the session token from the current request's cookie.
   // IMPACT: Other sessions remain valid.
   logout: publicProcedure.mutation(async ({ ctx }) => {
