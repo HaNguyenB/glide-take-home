@@ -1,7 +1,5 @@
-import tailwindcss from '@tailwindcss/postcss'
+const config = {
+  plugins: process.env.NODE_ENV === 'test' ? [] : ["@tailwindcss/postcss"],
+};
 
-export default {
-  plugins: [
-    tailwindcss,
-  ],
-}
+export default config;
