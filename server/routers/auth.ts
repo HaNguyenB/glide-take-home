@@ -39,7 +39,7 @@ export const authRouter = router({
       }
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
-
+      
       await db.insert(users).values({
         ...input,
         password: hashedPassword,
