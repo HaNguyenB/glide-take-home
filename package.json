@@ -15,7 +15,8 @@
     "db:list-users": "node scripts/db-utils.js list-users",
     "db:list-sessions": "node scripts/db-utils.js list-sessions",
     "db:clear": "node scripts/db-utils.js clear",
-    "db:delete-user": "node scripts/db-utils.js delete-user"
+    "db:delete-user": "node scripts/db-utils.js delete-user",
+    "reproduce:session-bug": "node scripts/reproduce-session-bug.js"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.79.0",
