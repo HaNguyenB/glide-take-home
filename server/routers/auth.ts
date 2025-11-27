@@ -27,7 +27,16 @@ export const authRouter = router({
         zipCode: z.string().regex(/^\d{5}$/),
       })
     )
+    // ISSUE: Signup doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      // Check if user already has active session
+      if (ctx.user) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot signup while already logged in. Please logout first.",
+        });
+      }
+      // Check if user already exists
       const existingUser = await db
         .select()
         .from(users)
@@ -93,6 +102,8 @@ export const authRouter = router({
       return { user: sanitizeUser(user), token };
     }),
 
+    
+
   login: publicProcedure
     .input(
       z.object({
@@ -100,7 +111,16 @@ export const authRouter = router({
         password: z.string(),
       })
     )
+    // ISSUE: Login doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      // Check if user already has active session
+      if (ctx.user) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot login while already logged in. Please logout first.",
+        });
+      }
+      // Check if user exists
       const user = await db
         .select()
         .from(users)
