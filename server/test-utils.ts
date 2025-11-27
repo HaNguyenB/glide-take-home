@@ -3,14 +3,31 @@ import type { CreateNextContextOptions } from "@trpc/server/adapters/next";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import { createContext, type Context } from "./trpc";
 import { authRouter } from "./routers/auth";
+import { db } from "@/lib/db";
+import { sessions } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import jwt from "jsonwebtoken";
 
-/**
- * Create a test context for tRPC procedures
- * This simulates the request/response objects that tRPC needs
- */
+// Create test context
+// Accepts either: string (cookie) or object
 export async function createTestContext(
-  overrides?: Partial<CreateNextContextOptions | FetchCreateContextFnOptions>
-) {
+  cookieOrOverrides?: string | Partial<CreateNextContextOptions | FetchCreateContextFnOptions>
+): Promise<Context> {
+  // If it's a string, treat it as a cookie value (new simplified API)
+  if (typeof cookieOrOverrides === 'string' || cookieOrOverrides === undefined) {
+    const cookie = cookieOrOverrides || '';
+    const headers = {
+      cookie, // Direct property access
+      get: (key: string) => key === 'cookie' ? cookie : undefined, // Function access
+    };
+
+    return createContext({
+      req: { headers } as any,
+      res: { setHeader: () => {} } as any,
+    } as CreateNextContextOptions);
+  }
+
+  // Otherwise, it's the old override pattern (object)
   const defaultReq = {
     headers: {
       cookie: '',
@@ -19,12 +36,12 @@ export async function createTestContext(
         return undefined;
       },
     },
-    ...(overrides && 'req' in overrides ? overrides.req : {}),
+    ...(cookieOrOverrides && 'req' in cookieOrOverrides ? cookieOrOverrides.req : {}),
   } as any;
 
   const defaultRes = {
     setHeader: () => {},
-    ...(overrides && 'res' in overrides ? overrides.res : {}),
+    ...(cookieOrOverrides && 'res' in cookieOrOverrides ? cookieOrOverrides.res : {}),
   } as any;
 
   return createContext({
@@ -33,9 +50,7 @@ export async function createTestContext(
   } as CreateNextContextOptions);
 }
 
-/**
- * Test user data type
- */
+// Test user data type
 export type TestUserData = {
   email: string;
   password: string;
@@ -50,64 +65,76 @@ export type TestUserData = {
   zipCode: string;
 };
 
-/**
- * Generate test user data with unique email
- * This ensures tests don't conflict with each other
- */
-export function createTestUserData(overrides?: Partial<TestUserData>): TestUserData {
-  const unique = crypto.randomUUID();
-  return {
-    email: `test-${unique}@example.com`,
-    password: 'password123',
-    firstName: 'Test',
-    lastName: 'User',
-    phoneNumber: '+1234567890',
-    dateOfBirth: '1990-01-01',
-    ssn: '123456789',
-    address: '123 Main St',
-    city: 'City',
-    state: 'NY',
-    zipCode: '12345',
-    ...overrides,
-  };
-}
+// Generate unique test user data
+export const createTestUserData = (overrides?: Partial<TestUserData>): TestUserData => ({
+  email: `test-${crypto.randomUUID()}@example.com`,
+  password: 'password123',
+  firstName: 'Test',
+  lastName: 'User',
+  phoneNumber: '+1234567890',
+  dateOfBirth: '1990-01-01',
+  ssn: '123456789',
+  address: '123 Main St',
+  city: 'City',
+  state: 'NY',
+  zipCode: '12345',
+  ...overrides,
+});
 
-/**
- * Create an authenticated test context by signing up a user
- * This helper eliminates the need to manually create sessions in tests
- * 
- * @param userData - Optional user data. If not provided, uses createTestUserData()
- * @returns An authenticated context with ctx.user populated
- * 
- * @example
- * ```typescript
- * const ctx = await createAuthenticatedContext();
- * const accountCaller = accountRouter.createCaller(ctx);
- * // ctx.user is now available for protectedProcedure calls
- * ```
- */
+// Create authenticated context (signs up user)
 export async function createAuthenticatedContext(
   userData?: TestUserData
 ): Promise<Context> {
   const testData = userData || createTestUserData();
   
-  // Create unauthenticated context for signup
-  const unauthenticatedCtx = await createTestContext();
-  const authCaller = authRouter.createCaller(unauthenticatedCtx);
+  const ctx = await createTestContext();
+  const authCaller = authRouter.createCaller(ctx);
+  const { token } = await authCaller.signup(testData);
   
-  // Sign up the user (this creates the session and returns the token)
-  const signupResult = await authCaller.signup(testData);
-  
-  // Create authenticated context with the session token
-  const authenticatedCtx = await createTestContext({
-    req: {
-      headers: {
-        cookie: `session=${signupResult.token}`,
-        get: (key: string) => (key === "cookie" ? `session=${signupResult.token}` : undefined),
-      },
-    } as any,
-  });
-  
-  return authenticatedCtx;
+  return createContextWithToken(token);
 }
 
+// Get all sessions for a user
+export const getUserSessions = async (userId: number) =>
+  await db.select().from(sessions).where(eq(sessions.userId, userId)).all();
+
+// Create context with specific token
+export const createContextWithToken = async (token: string) =>
+  await createTestContext(`session=${token}`);
+
+// Create multiple sessions for a user
+export async function createMultipleSessions(
+  userId: number,
+  count: number
+): Promise<string[]> {
+  const tokens: string[] = [];
+  const JWT_SECRET = process.env.JWT_SECRET || "temporary-secret-for-interview";
+
+  for (let i = 0; i < count; i++) {
+    const token = jwt.sign(
+      { userId, sessionId: crypto.randomUUID() },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await db.insert(sessions).values({
+      userId,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    });
+
+    tokens.push(token);
+  }
+
+  return tokens;
+}
+
+// Extract token from context
+export function getTokenFromContext(ctx: Context): string | undefined {
+  const cookie = (ctx.req as any).headers?.get?.("cookie") || 
+                 (ctx.req as any).headers?.cookie || "";
+  return cookie.split("; ").find((c: string) => c.startsWith("session="))?.split("=")[1];
+}
