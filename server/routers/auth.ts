@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSSN } from "@/lib/encryption";
+import { getSessionTokenFromContext } from "../utils/session-token";
 
 export const authRouter = router({
   signup: publicProcedure
@@ -150,24 +151,11 @@ export const authRouter = router({
     }),
   // ISSUE: Logout deletes only the session token from the current request's cookie.
   // IMPACT: Other sessions remain valid.
-  // FIX: Modify the condition to check for a valid token from cookies.session first, and if it's missing, parse from headers.
   logout: publicProcedure.mutation(async ({ ctx }) => {
     if (ctx.user) {
-      // Delete session from database
-      let token: string | undefined;
-      // If cookies.session has a value. Use it.
-      if ("cookies" in ctx.req && (ctx.req as any).cookies?.session) {
-        token = (ctx.req as any).cookies.session;
-      }
-      // If cookies.session is undefined, fall back to parsing headers.
-      else {
-        const cookieHeader =
-          ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
-        token = cookieHeader
-          ?.split("; ")
-          .find((c: string) => c.startsWith("session="))
-          ?.split("=")[1];
-      }
+      // Delete session from database using shared token extraction
+      const token = getSessionTokenFromContext(ctx);
+      
       if (token) {
         await db.delete(sessions).where(eq(sessions.token, token));
       }

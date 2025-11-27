@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { db } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getSessionToken } from "./utils/session-token";
 
 export async function createContext(opts: CreateNextContextOptions | FetchCreateContextFnOptions) {
   // Handle different adapter types
@@ -21,29 +22,8 @@ export async function createContext(opts: CreateNextContextOptions | FetchCreate
     res = opts.resHeaders;
   }
 
-  // Get the session token
-  let token: string | undefined;
-
-  // For App Router, we need to read cookies from the request headers
-  let cookieHeader = "";
-  if (req.headers.cookie) {
-    // Next.js Pages request
-    cookieHeader = req.headers.cookie;
-  } else if (req.headers.get) {
-    // Fetch request (App Router)
-    cookieHeader = req.headers.get("cookie") || "";
-  }
-
-  const cookiesObj = Object.fromEntries(
-    cookieHeader
-      .split("; ")
-      .filter(Boolean)
-      .map((c: string) => {
-        const [key, ...val] = c.split("=");
-        return [key, val.join("=")];
-      })
-  );
-  token = cookiesObj.session;
+  // Get the session token using shared utility
+  const token = getSessionToken(req);
 
   let user = null;
   if (token) {

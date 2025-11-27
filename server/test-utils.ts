@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import jwt from "jsonwebtoken";
+import { getSessionTokenFromContext } from "./utils/session-token";
 
 // Create test context
 // Accepts either: string (cookie) or object
@@ -132,9 +133,7 @@ export async function createMultipleSessions(
   return tokens;
 }
 
-// Extract token from context
+// Extract token from context (uses shared utility)
 export function getTokenFromContext(ctx: Context): string | undefined {
-  const cookie = (ctx.req as any).headers?.get?.("cookie") || 
-                 (ctx.req as any).headers?.cookie || "";
-  return cookie.split("; ").find((c: string) => c.startsWith("session="))?.split("=")[1];
+  return getSessionTokenFromContext(ctx);
 }
