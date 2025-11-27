@@ -154,6 +154,7 @@ export const authRouter = router({
     if (ctx.user) {
       // Delete session from database
       let token: string | undefined;
+      // The logout mutation can't extract the token from the cookie
       if ("cookies" in ctx.req) {
         token = (ctx.req as any).cookies.session;
       } else {
