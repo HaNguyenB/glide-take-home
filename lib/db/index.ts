@@ -2,7 +2,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import * as schema from "./schema";
 
-const dbPath = "bank.db";
+// Use in-memory database for testing. Otherwise, use the file database.
+const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : 'bank.db'
 
 const sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });

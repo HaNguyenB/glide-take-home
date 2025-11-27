@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
 import type { Plugin } from 'vite';
+import { loadEnv } from 'vite';
 
 // Plugin to prevent PostCSS config from being loaded
 const ignorePostCSSPlugin = (): Plugin => ({
@@ -14,40 +15,44 @@ const ignorePostCSSPlugin = (): Plugin => ({
   },
 });
 
-export default defineConfig({
-  test: {
-    globals: true,
-    environment: 'node',
-    setupFiles: ['./tests/setup.ts'],
-    threads: false,
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/',
-        'tests/',
-        '*.config.*',
-        '**/*.test.ts',
-        '**/*.spec.ts',
-        'scripts/',
-        'node-portable/',
-        'app/',
-        'components/',
-      ],
-    },
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './'),
-    },
-  },
-  esbuild: {
-    target: 'node18',
-  },
-  // Exclude PostCSS from optimization
-  optimizeDeps: {
-    exclude: ['@tailwindcss/postcss'],
-  },
-  plugins: [ignorePostCSSPlugin()],
-});
+export default defineConfig(({ mode }) => {
+  // Load .env file - this makes environment variables available to tests
+  loadEnv(mode, process.cwd(), '');
 
+  return {
+    test: {
+      globals: true,
+      environment: 'node',
+      setupFiles: ['./tests/setup.ts'],
+      threads: false,
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'json', 'html'],
+        exclude: [
+          'node_modules/',
+          'tests/',
+          '*.config.*',
+          '**/*.test.ts',
+          '**/*.spec.ts',
+          'scripts/',
+          'node-portable/',
+          'app/',
+          'components/',
+        ],
+      },
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './'),
+      },
+    },
+    esbuild: {
+      target: 'node18',
+    },
+    // Exclude PostCSS from optimization
+    optimizeDeps: {
+      exclude: ['@tailwindcss/postcss'],
+    },
+    plugins: [ignorePostCSSPlugin()],
+  };
+});
