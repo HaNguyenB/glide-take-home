@@ -67,6 +67,7 @@ export function TransactionList({ accountId }: TransactionListProps) {
                   {transaction.type}
                 </span>
               </td>
+              {/* 11/27/2025: Primary vulnerability: Using dangerouslySetInnerHTML to render transaction description injects raw HTML into the DOM */}
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 {transaction.description ? <span dangerouslySetInnerHTML={{ __html: transaction.description }} /> : "-"}
               </td>
