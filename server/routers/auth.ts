@@ -65,6 +65,7 @@ export const authRouter = router({
       }
 
       // Create session
+      // ISSUE: Multiple sessions created without invalidaing previous sessions
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -121,6 +122,8 @@ export const authRouter = router({
         });
       }
 
+      // ISSUE: Each login/signup adds a new session. 
+      // IMPACT: A user can accumuate multiple sessions.
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -145,7 +148,8 @@ export const authRouter = router({
       }
       return { user: sanitizeUser(user), token };
     }),
-
+  // ISSUE: Logout deletes only the session token from the current request's cookie.
+  // IMPACT: Other sessions remain valid.
   logout: publicProcedure.mutation(async ({ ctx }) => {
     if (ctx.user) {
       // Delete session from database
