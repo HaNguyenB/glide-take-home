@@ -1,6 +1,7 @@
-import { beforeAll, afterEach } from 'vitest';
-import { db } from '@/lib/db';
-import { users, sessions, accounts, transactions } from '@/lib/db/schema';
+import crypto from "crypto";
+import { beforeAll, afterEach } from "vitest";
+import { db } from "@/lib/db";
+import { users, sessions, accounts, transactions } from "@/lib/db/schema";
 
 /**
  * Clean all test data from the database
@@ -14,20 +15,16 @@ export async function cleanDatabase() {
   await db.delete(users);
 }
 
+process.env.VITE_CSS = "false";
+if (!process.env.ENCRYPTION_KEY) {
+  process.env.ENCRYPTION_KEY = crypto.randomBytes(32).toString("hex");
+}
+if (!process.env.JWT_SECRET) {
+  process.env.JWT_SECRET = "test-jwt-secret-for-testing-only";
+}
+
 beforeAll(async () => {
-  // Prevent Vite from processing PostCSS config during tests
-  process.env.VITE_CSS = 'false';
-  
-  // Set test environment variables
-  // These are required for the application to work in test environment
-  if (!process.env.ENCRYPTION_KEY) {
-    // Generate a test encryption key (64 hex chars = 32 bytes)
-    // In production, this should be a secure random key stored in secrets manager
-    process.env.ENCRYPTION_KEY = 'test-encryption-key-32-bytes-long-for-testing-only!!'.repeat(2).slice(0, 64);
-  }
-  if (!process.env.JWT_SECRET) {
-    process.env.JWT_SECRET = 'test-jwt-secret-for-testing-only';
-  }
+  // Additional global setup can be added here
 });
 
 afterEach(async () => {

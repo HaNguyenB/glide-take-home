@@ -19,6 +19,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
+    threads: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

@@ -1,6 +1,7 @@
-import type { CreateNextContextOptions } from '@trpc/server/adapters/next';
-import type { FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch';
-import { createContext } from './trpc';
+import crypto from "crypto";
+import type { CreateNextContextOptions } from "@trpc/server/adapters/next";
+import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
+import { createContext } from "./trpc";
 
 /**
  * Create a test context for tRPC procedures
@@ -36,9 +37,9 @@ export async function createTestContext(
  * This ensures tests don't conflict with each other
  */
 export function createTestUserData(overrides?: Partial<ReturnType<typeof createTestUserData>>) {
-  const timestamp = Date.now();
+  const unique = crypto.randomUUID();
   return {
-    email: `test-${timestamp}@example.com`,
+    email: `test-${unique}@example.com`,
     password: 'password123',
     firstName: 'Test',
     lastName: 'User',

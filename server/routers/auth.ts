@@ -1,4 +1,5 @@
 import { z } from "zod";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { TRPCError } from "@trpc/server";
@@ -6,6 +7,7 @@ import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { encryptSSN } from "@/lib/encryption";
 
 export const authRouter = router({
   signup: publicProcedure
@@ -39,9 +41,12 @@ export const authRouter = router({
       }
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
-      
+      // 11/27/25: encrypt SSN before persisting (SEC-301).
+      const encryptedSSN = encryptSSN(input.ssn);
+
       await db.insert(users).values({
         ...input,
+        ssn: encryptedSSN,
         password: hashedPassword,
       });
 
@@ -60,13 +65,7 @@ export const authRouter = router({
       }
 
       // Create session
-      const token = jwt.sign(
-        { userId: user.id },
-        process.env.JWT_SECRET || "temporary-secret-for-interview",
-        {
-          expiresIn: "7d",
-        }
-      );
+      const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -89,8 +88,7 @@ export const authRouter = router({
           `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
         );
       }
-      // 11/26/2025 7:41PM Auth router returns full user object with only password omitted
-      return { user: { ...user, password: undefined }, token };
+      return { user: sanitizeUser(user), token };
     }),
 
   login: publicProcedure
@@ -123,13 +121,7 @@ export const authRouter = router({
         });
       }
 
-      const token = jwt.sign(
-        { userId: user.id },
-        process.env.JWT_SECRET || "temporary-secret-for-interview",
-        {
-          expiresIn: "7d",
-        }
-      );
+      const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -151,8 +143,7 @@ export const authRouter = router({
           `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
         );
       }
-      // 11/26/2025 7:41PM Auth router returns full user object with only password omitted
-      return { user: { ...user, password: undefined }, token };
+      return { user: sanitizeUser(user), token };
     }),
 
   logout: publicProcedure.mutation(async ({ ctx }) => {
@@ -192,3 +183,19 @@ export const authRouter = router({
     };
   }),
 });
+
+function sanitizeUser(user: typeof users.$inferSelect) {
+  // 11/27/25: strip sensitive fields from responses (SEC-301).
+  const { password, ssn, ...rest } = user;
+  return rest;
+}
+
+function createSessionToken(userId: number) {
+  return jwt.sign(
+    { userId, sessionId: crypto.randomUUID() },
+    process.env.JWT_SECRET || "temporary-secret-for-interview",
+    {
+      expiresIn: "7d",
+    }
+  );
+}

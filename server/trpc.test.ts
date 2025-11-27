@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createContext } from './trpc';
-import { createTestUserData } from './test-utils';
-import { authRouter } from './routers/auth';
+import { createContext } from "./trpc";
+import { createTestUserData, createTestContext } from "./test-utils";
+import { authRouter } from "./routers/auth";
 import { db } from '@/lib/db';
 import { users, sessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -16,7 +16,8 @@ describe('createContext - SSN Security (SEC-301)', () => {
   it('should exclude sensitive fields (SSN and password) from context user object', async () => {
     const testData = createTestUserData();
     const ctx = await createTestContext();
-    await authRouter.signup.mutate(testData, ctx);
+    const caller = authRouter.createCaller(ctx);
+    await caller.signup(testData);
 
     const user = await db.select().from(users).where(eq(users.email, testData.email)).get();
     const token = jwt.sign(
@@ -31,9 +32,14 @@ describe('createContext - SSN Security (SEC-301)', () => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     });
 
-    const testCtx = await createContext({
-      req: { headers: { cookie: `session=${token}` } } as any,
-      res: {} as any,
+    const testCtx = await createTestContext({
+      // 11/27/2025: set cookie via shared helper to avoid missing fields that broke this test.
+      req: {
+        headers: {
+          cookie: `session=${token}`,
+          get: (key: string) => (key === "cookie" ? `session=${token}` : undefined),
+        },
+      } as any,
     });
 
     expect(testCtx.user?.ssn).toBeUndefined();

@@ -11,12 +11,13 @@ describe('auth.signup - SSN Security (SEC-301)', () => {
     await cleanDatabase();
   });
 
-  it('should encrypt SSN before storing in database', async () => {
+  it("should encrypt SSN before storing in database", async () => {
     const testData = createTestUserData();
     const plaintextSSN = testData.ssn;
 
     const ctx = await createTestContext();
-    await authRouter.signup.mutate(testData, ctx);
+    const caller = authRouter.createCaller(ctx);
+    await caller.signup(testData);
 
     const storedUser = await db
       .select()
@@ -29,19 +30,33 @@ describe('auth.signup - SSN Security (SEC-301)', () => {
     expect(storedUser?.ssn.length).toBeGreaterThan(plaintextSSN.length);
   });
 
-  it.each([
-    ['signup', (ctx: any) => authRouter.signup.mutate(createTestUserData(), ctx)],
-    ['login', async (ctx: any) => {
-      const testData = createTestUserData();
-      await authRouter.signup.mutate(testData, ctx);
-      return authRouter.login.mutate({ email: testData.email, password: testData.password }, ctx);
-    }],
-  ])('should exclude SSN from %s response', async (_, getResult) => {
+  it("should exclude SSN from signup response", async () => {
+    const testData = createTestUserData();
     const ctx = await createTestContext();
-    const result = await getResult(ctx);
+    const caller = authRouter.createCaller(ctx);
 
-    expect(result.user.ssn).toBeUndefined();
-    expect(result.user.password).toBeUndefined();
-    expect(result.user.email).toBeDefined();
+    const result = await caller.signup(testData);
+
+    const user = result.user as any;
+    expect(user.ssn).toBeUndefined();
+    expect(user.password).toBeUndefined();
+    expect(result.user.email).toBe(testData.email);
+  });
+
+  it("should exclude SSN from login response", async () => {
+    const testData = createTestUserData();
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await caller.signup(testData);
+    const result = await caller.login({
+      email: testData.email,
+      password: testData.password,
+    });
+
+    const user = result.user as any;
+    expect(user.ssn).toBeUndefined();
+    expect(user.password).toBeUndefined();
+    expect(user.email).toBe(testData.email);
   });
 });
