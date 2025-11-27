@@ -10,7 +10,8 @@ type LoginFormData = {
   email: string;
   password: string;
 };
-
+// ISSUE: Login page doesn't check authentication status of the user.
+// IMPACT: A user can login multiple times via the page and have multiple sessions.
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
