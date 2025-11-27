@@ -150,14 +150,17 @@ export const authRouter = router({
     }),
   // ISSUE: Logout deletes only the session token from the current request's cookie.
   // IMPACT: Other sessions remain valid.
+  // FIX: Modify the condition to check for a valid token from cookies.session first, and if it's missing, parse from headers.
   logout: publicProcedure.mutation(async ({ ctx }) => {
     if (ctx.user) {
       // Delete session from database
       let token: string | undefined;
-      // The logout mutation can't extract the token from the cookie
-      if ("cookies" in ctx.req) {
+      // If cookies.session has a value. Use it.
+      if ("cookies" in ctx.req && (ctx.req as any).cookies?.session) {
         token = (ctx.req as any).cookies.session;
-      } else {
+      }
+      // If cookies.session is undefined, fall back to parsing headers.
+      else {
         const cookieHeader =
           ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
         token = cookieHeader
