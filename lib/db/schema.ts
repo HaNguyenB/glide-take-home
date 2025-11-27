@@ -36,7 +36,7 @@ export const transactions = sqliteTable("transactions", {
     .notNull(),
   type: text("type").notNull(), // deposit, withdrawal
   amount: real("amount").notNull(),
-  description: text("description"),
+  description: text("description"), //Description are stored as plain text
   status: text("status").default("pending").notNull(),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
   processedAt: text("processed_at"),

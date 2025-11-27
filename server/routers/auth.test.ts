@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { authRouter } from './auth';
 import { createTestContext, createTestUserData } from '../test-utils';
 import { db } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { cleanDatabase } from '@/tests/setup';
 
 describe('auth.signup - SSN Security (SEC-301)', () => {
-  beforeEach(async () => {
-    await cleanDatabase();
-  });
 
   it("should encrypt SSN before storing in database", async () => {
     const testData = createTestUserData();
