@@ -25,7 +25,11 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const existingUser = await db.select().from(users).where(eq(users.email, input.email)).get();
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, input.email))
+        .get();
 
       if (existingUser) {
         throw new TRPCError({
@@ -42,7 +46,11 @@ export const authRouter = router({
       });
 
       // Fetch the created user
-      const user = await db.select().from(users).where(eq(users.email, input.email)).get();
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, input.email))
+        .get();
 
       if (!user) {
         throw new TRPCError({
@@ -52,9 +60,13 @@ export const authRouter = router({
       }
 
       // Create session
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || "temporary-secret-for-interview", {
-        expiresIn: "7d",
-      });
+      const token = jwt.sign(
+        { userId: user.id },
+        process.env.JWT_SECRET || "temporary-secret-for-interview",
+        {
+          expiresIn: "7d",
+        }
+      );
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -67,11 +79,17 @@ export const authRouter = router({
 
       // Set cookie
       if ("setHeader" in ctx.res) {
-        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        ctx.res.setHeader(
+          "Set-Cookie",
+          `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
+        );
       } else {
-        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        (ctx.res as Headers).set(
+          "Set-Cookie",
+          `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
+        );
       }
-
+      // 11/26/2025 7:41PM Auth router returns full user object with only password omitted
       return { user: { ...user, password: undefined }, token };
     }),
 
@@ -83,7 +101,11 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const user = await db.select().from(users).where(eq(users.email, input.email)).get();
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, input.email))
+        .get();
 
       if (!user) {
         throw new TRPCError({
@@ -101,9 +123,13 @@ export const authRouter = router({
         });
       }
 
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || "temporary-secret-for-interview", {
-        expiresIn: "7d",
-      });
+      const token = jwt.sign(
+        { userId: user.id },
+        process.env.JWT_SECRET || "temporary-secret-for-interview",
+        {
+          expiresIn: "7d",
+        }
+      );
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -115,11 +141,17 @@ export const authRouter = router({
       });
 
       if ("setHeader" in ctx.res) {
-        ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        ctx.res.setHeader(
+          "Set-Cookie",
+          `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
+        );
       } else {
-        (ctx.res as Headers).set("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
+        (ctx.res as Headers).set(
+          "Set-Cookie",
+          `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
+        );
       }
-
+      // 11/26/2025 7:41PM Auth router returns full user object with only password omitted
       return { user: { ...user, password: undefined }, token };
     }),
 
@@ -130,7 +162,8 @@ export const authRouter = router({
       if ("cookies" in ctx.req) {
         token = (ctx.req as any).cookies.session;
       } else {
-        const cookieHeader = ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
+        const cookieHeader =
+          ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
         token = cookieHeader
           ?.split("; ")
           .find((c: string) => c.startsWith("session="))
@@ -142,11 +175,20 @@ export const authRouter = router({
     }
 
     if ("setHeader" in ctx.res) {
-      ctx.res.setHeader("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+      ctx.res.setHeader(
+        "Set-Cookie",
+        `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`
+      );
     } else {
-      (ctx.res as Headers).set("Set-Cookie", `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+      (ctx.res as Headers).set(
+        "Set-Cookie",
+        `session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`
+      );
     }
 
-    return { success: true, message: ctx.user ? "Logged out successfully" : "No active session" };
+    return {
+      success: true,
+      message: ctx.user ? "Logged out successfully" : "No active session",
+    };
   }),
 });
