@@ -436,6 +436,54 @@ fetch("http://localhost:3000/api/trpc/account.getTransactions?batch=1&input=%7B%
 - Priority: Critical
 - Description: "Account balances become incorrect after many transactions"
 - Impact: Critical financial discrepancies
+- How to reproduce:
+  - Run the script below to perform many small deposits on a single account and compare the expected vs. actual balance.
+- Repro script (click to expand):
+
+<details>
+  <summary>View PERF-406 repro script</summary>
+
+```ts
+import { accountRouter } from "../server/routers/account";
+import { createAuthenticatedContext } from "../server/test-utils";
+import { db } from "@/lib/db";
+import { accounts } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+
+async function main() {
+  const ctx = await createAuthenticatedContext();
+  const caller = accountRouter.createCaller(ctx);
+
+  const account = await caller.createAccount({ accountType: "checking" });
+
+  const depositAmount = 0.1;
+  const iterations = 2000;
+
+  for (let i = 0; i < iterations; i++) {
+    await caller.fundAccount({
+      accountId: account.id,
+      amount: depositAmount,
+      fundingSource: { type: "card", accountNumber: "4111111111111111" },
+    });
+  }
+
+  const dbRecord = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
+
+  const expected = Number((iterations * depositAmount).toFixed(2));
+
+  console.log({
+    iterations,
+    depositAmount,
+    expectedBalance: expected,
+    actualBalance: dbRecord?.balance,
+    difference: dbRecord ? dbRecord.balance - expected : null,
+  });
+}
+
+main();
+```
+
+</details>
 
 <a id="ticket-perf-407"></a>
 ### Ticket PERF-407: Performance Degradation
