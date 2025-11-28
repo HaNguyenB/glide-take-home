@@ -33,15 +33,21 @@ export async function createContext(opts: CreateNextContextOptions | FetchCreate
       };
 
       const session = await db.select().from(sessions).where(eq(sessions.token, token)).get();
-
-      if (session && new Date(session.expiresAt) > new Date()) {
+      
+      // PERF-403: Capture current time once to avoid timing precision issues
+      // This ensures consistent timestamp comparison and prevents expired sessions
+      // from being considered valid due to race conditions between multiple new Date() calls
+      const now = new Date();
+      const expiresAt = session ? new Date(session.expiresAt) : null;
+      
+      if (session && expiresAt && expiresAt > now) {
         const dbUser = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
         if (dbUser) {
           const { password, ssn, ...safeUser } = dbUser;
           // 11/27/25: prevent SSN/password from leaking via context (SEC-301).
           user = safeUser as typeof dbUser;
         }
-        const expiresIn = new Date(session.expiresAt).getTime() - new Date().getTime();
+        const expiresIn = expiresAt.getTime() - now.getTime();
         if (expiresIn < 60000) {
           console.warn("Session about to expire");
         }

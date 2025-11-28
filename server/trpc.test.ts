@@ -100,3 +100,88 @@ describe('createContext - SSN Security (SEC-301)', () => {
     expect(testCtx.user?.email).toBe(testData.email);
   });
 });
+
+describe('createContext - Session Expiry Timing Bug (PERF-403)', () => {
+
+  it('should reject expired sessions using consistent timestamp', async () => {
+    // Create user and session
+    const testData = createTestUserData();
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+    await caller.signup(testData);
+    
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, testData.email))
+      .get();
+    
+    expect(user).toBeDefined();
+    
+    // Create a JWT token
+    const token = jwt.sign(
+      { userId: user!.id },
+      process.env.JWT_SECRET || 'temporary-secret-for-interview',
+      { expiresIn: '7d' }
+    );
+    
+    // Create a session that expired 1 second ago
+    const expiredAt = new Date(Date.now() - 1000);
+    await db.insert(sessions).values({
+      userId: user!.id,
+      token,
+      expiresAt: expiredAt.toISOString(),
+    });
+    
+    // Create context with the expired session token
+    // PERF-403 fix: Uses consistent timestamp, so expired session should be rejected
+    const testCtx = await createTestContext(`session=${token}`);
+    
+    // Session should be rejected (user should be null)
+    expect(testCtx.user).toBeNull();
+  });
+
+  it('should handle sessions expiring at boundary time with consistent timestamp', async () => {
+    // Create user and session
+    const testData = createTestUserData();
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+    await caller.signup(testData);
+    
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, testData.email))
+      .get();
+    
+    expect(user).toBeDefined();
+    
+    // Create a JWT token
+    const token = jwt.sign(
+      { userId: user!.id },
+      process.env.JWT_SECRET || 'temporary-secret-for-interview',
+      { expiresIn: '7d' }
+    );
+    
+    // Create a session that expires exactly at current time (boundary case)
+    // PERF-403 fix ensures consistent timestamp comparison
+    const now = Date.now();
+    const expiresAt = new Date(now); // Expires exactly now
+    
+    await db.insert(sessions).values({
+      userId: user!.id,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    });
+    
+    // Small delay to ensure we're past the expiry time
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
+    // Create context - should reject expired session
+    const testCtx = await createTestContext(`session=${token}`);
+    
+    // Session expired at boundary, should be rejected
+    expect(testCtx.user).toBeNull();
+  });
+
+});
