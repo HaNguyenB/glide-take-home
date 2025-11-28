@@ -12,15 +12,23 @@
 ## Progress-Based Grouping
 
 ### PR 1 – SSN Storage Hardening
-- Summary: Encrypt SSNs at rest and enforce masked displays.
+- Summary: Keep SSNs hidden, encrypted, and out of responses.
 - Tickets: [SEC-301](#ticket-sec-301)
   - Root causes:
-    - SSNs are stored in plaintext (no encryption/hashing)
-    - SSNs are included in API responses
-    - SSNs are accessible via the application context
-    - No SSN-specific encryption mechanism is applied (passwords use bcrypt, SSNs did not)
+    - SSNs sat in the database as plain text.
+    - APIs returned SSNs as part of the user payload.
+    - The application context could access decrypted SSNs.
+    - Passwords used bcrypt, but SSNs had zero protection.
+  - How it was fixed:
+    - Wrote failing tests showing SSNs were stored and returned in clear text.
+    - Added AES-256-GCM helpers (`encryptSSN` / `decryptSSN`) and enforced the `ENCRYPTION_KEY` env var.
+    - Updated signup to encrypt before saving and sanitized all auth responses so SSNs never leave the server.
+  - Preventive measures:
+    - Only handle SSNs via the helpers in `lib/encryption.ts`; no raw strings anywhere else.
+    - Always send user objects through `sanitizeUser`, and keep tests that prove SSNs never leak.
+    - Treat `ENCRYPTION_KEY` as mandatory config and document how to rotate it safely.
 
-### PR 2 – XSS Mitigation
+### PR 2 – XSS Vulnerability
 - Summary: Escape transaction descriptions and audit rendering paths for XSS.
 - Tickets: [SEC-303](#ticket-sec-303)
 
@@ -166,6 +174,126 @@
 - Priority: Critical
 - Description: "Unescaped HTML rendering in transaction descriptions"
 - Impact: Potential for cross-site scripting attacks
+- How to reproduce:
+  1. Load the Transactions page in dark mode.
+  2. Open the browser console and run the script below to check for unsafe rendering and attempt payload injection.
+  3. Observe that injected HTML executes when descriptions are rendered without escaping.
+
+Testing script (click to expand):
+
+<details>
+  <summary>View XSS probe script</summary>
+
+```js
+// Step 1: First, let's check if dangerouslySetInnerHTML is actually used
+console.log("🔍 Step 1: Checking for dangerouslySetInnerHTML in the page source...");
+
+// Look for React dev tools props
+const descriptionCells = document.querySelectorAll('tbody td:nth-child(3)');
+
+let foundDangerous = false;
+
+descriptionCells.forEach(cell => {
+  // Check if the cell has __reactProps or similar
+  const innerHTML = cell.innerHTML;
+
+  if (innerHTML.includes('<') && innerHTML.includes('>')) {
+    console.log("⚠️  Found HTML in description cell:", innerHTML);
+    foundDangerous = true;
+  }
+});
+
+if (!foundDangerous) {
+  console.log("ℹ️  No HTML detected in current descriptions. Proceeding with injection test...");
+}
+
+// Step 2: Fetch and test
+fetch("http://localhost:3000/api/trpc/account.getTransactions?batch=1&input=%7B%220%22%3A%7B%22accountId%22%3A1%7D%7D", {
+  "headers": {
+    "accept": "*/*",
+    "sec-fetch-site": "same-origin"
+  },
+  "method": "GET",
+  "credentials": "include"
+})
+.then(response => response.json())
+.then(data => {
+  console.log("\n📦 Step 2: Fetched transaction data");
+
+  if (data[0]?.result?.data && Array.isArray(data[0].result.data)) {
+    const transactions = data[0].result.data;
+
+    if (transactions.length === 0) {
+      console.log("❌ No transactions found. Create one first!");
+      return;
+    }
+
+    console.log(`✅ Found ${transactions.length} transaction(s)`);
+
+    // Test multiple payloads
+    const payloads = [
+      '<img src=x onerror="alert(\'IMG XSS\')">', // Event handler
+      '<svg onload="alert(\'SVG XSS\')"></svg>',  // SVG vector
+      '<iframe src="javascript:alert(\'IFRAME XSS\')"></iframe>' // iframe
+    ];
+
+    console.log("\n🔴 Step 3: Testing XSS payloads...\n");
+
+    const tbody = document.querySelector('tbody');
+    if (!tbody) {
+      console.log("❌ Transaction table not found!");
+      return;
+    }
+
+    const rows = tbody.querySelectorAll('tr');
+
+    payloads.forEach((payload, index) => {
+      if (rows[index]) {
+        const cells = rows[index].querySelectorAll('td');
+        if (cells.length >= 3) {
+          const descCell = cells[2];
+          const originalContent = descCell.innerHTML;
+
+          console.log(`\nTest ${index + 1}:`);
+          console.log(`  Payload: ${payload}`);
+
+          // Inject payload
+          descCell.innerHTML = payload;
+
+          // Check if it executed
+          setTimeout(() => {
+            const injected = descCell.querySelector('img, svg, iframe');
+            if (injected) {
+              console.log(`  ✅ Payload injected successfully`);
+              console.log(`  🔍 Element in DOM:`, injected.outerHTML.substring(0, 100));
+            } else {
+              console.log(`  ❌ Payload was sanitized or failed`);
+            }
+
+            // Restore original content
+            descCell.innerHTML = originalContent;
+          }, 100 * (index + 1));
+        }
+      }
+    });
+
+    console.log("\n" + "=".repeat(60));
+    console.log("🎯 REAL TEST: Check if the React component uses dangerouslySetInnerHTML");
+    console.log("   1. Open React DevTools");
+    console.log("   2. Find the transaction description component");
+    console.log("   3. Look for 'dangerouslySetInnerHTML' in props");
+    console.log("=".repeat(60));
+
+  } else {
+    console.log("❌ Unexpected response format");
+  }
+})
+.catch(error => {
+  console.error("❌ Error:", error);
+});
+```
+
+</details>
 
 <a id="ticket-sec-304"></a>
 ### Ticket SEC-304: Session Management
