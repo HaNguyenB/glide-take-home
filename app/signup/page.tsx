@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
 import Link from "next/link";
-import { parseAdultDob } from "@/lib/validation/signup";
+import { parseAdultDob, USPS_STATE_CODES } from "@/lib/validation/signup";
 
 type SignupFormData = {
   email: string;
@@ -349,9 +349,12 @@ export default function SignupPage() {
                   <input
                     {...register("state", {
                       required: "State is required",
-                      pattern: {
-                        value: /^[A-Z]{2}$/,
-                        message: "Use 2-letter state code",
+                      validate: (value) => {
+                        const normalized = value.trim().toUpperCase();
+                        return (
+                          USPS_STATE_CODES.includes(normalized as (typeof USPS_STATE_CODES)[number]) ||
+                          "Invalid state code"
+                        );
                       },
                     })}
                     type="text"
