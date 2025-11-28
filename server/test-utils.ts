@@ -69,7 +69,7 @@ export type TestUserData = {
 // Generate unique test user data
 export const createTestUserData = (overrides?: Partial<TestUserData>): TestUserData => ({
   email: `test-${crypto.randomUUID()}@example.com`,
-  password: 'password123',
+  password: 'Password123!',
   firstName: 'Test',
   lastName: 'User',
   phoneNumber: '+1234567890',

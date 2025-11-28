@@ -1,7 +1,7 @@
-import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
@@ -9,26 +9,39 @@ import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSSN } from "@/lib/encryption";
 import { getSessionTokenFromContext } from "../utils/session-token";
+import {
+  emailValidationSchema,
+  signupInputSchema,
+  validateEmailField,
+} from "@/lib/validation/signup";
 
 export const authRouter = router({
+  validateEmail: publicProcedure
+    .input(emailValidationSchema)
+    .mutation(async ({ input }) => {
+      const validationResult = validateEmailField(input.email);
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, validationResult.normalizedEmail))
+        .get();
+
+      if (existingUser) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with this email already exists",
+        });
+      }
+
+      return validationResult;
+    }),
   signup: publicProcedure
-    .input(
-      z.object({
-        email: z.string().email().toLowerCase(),
-        password: z.string().min(8),
-        firstName: z.string().min(1),
-        lastName: z.string().min(1),
-        phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-        dateOfBirth: z.string(),
-        ssn: z.string().regex(/^\d{9}$/),
-        address: z.string().min(1),
-        city: z.string().min(1),
-        state: z.string().length(2).toUpperCase(),
-        zipCode: z.string().regex(/^\d{5}$/),
-      })
-    )
+    .input(signupInputSchema)
     // ISSUE: Signup doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      const { normalizedEmail, notifications } = validateEmailField(input.email);
+      const notificationBag: Record<string, string> = { ...notifications };
+
       // Check if user already has active session
       if (ctx.user) {
         throw new TRPCError({
@@ -40,7 +53,7 @@ export const authRouter = router({
       const existingUser = await db
         .select()
         .from(users)
-        .where(eq(users.email, input.email))
+        .where(eq(users.email, normalizedEmail))
         .get();
 
       if (existingUser) {
@@ -56,6 +69,7 @@ export const authRouter = router({
 
       await db.insert(users).values({
         ...input,
+        email: normalizedEmail,
         ssn: encryptedSSN,
         password: hashedPassword,
       });
@@ -64,7 +78,7 @@ export const authRouter = router({
       const user = await db
         .select()
         .from(users)
-        .where(eq(users.email, input.email))
+        .where(eq(users.email, normalizedEmail))
         .get();
 
       if (!user) {
@@ -99,7 +113,17 @@ export const authRouter = router({
           `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
         );
       }
-      return { user: sanitizeUser(user), token };
+      const response: {
+        user: ReturnType<typeof sanitizeUser>;
+        token: string;
+        notifications?: Record<string, string>;
+      } = { user: sanitizeUser(user), token };
+
+      if (Object.keys(notificationBag).length > 0) {
+        response.notifications = notificationBag;
+      }
+
+      return response;
     }),
 
     
