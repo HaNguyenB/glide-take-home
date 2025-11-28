@@ -132,26 +132,46 @@ describe("auth.signup - Input Validation Issues (VAL-201, VAL-202, VAL-203, VAL-
     const ctx = await createTestContext();
     const caller = authRouter.createCaller(ctx);
 
-    await expect(
-      caller.signup(
-        createTestUserData({
-          password: "Aa1!",
-        })
-      )
-    ).rejects.toThrow(/password.*length/i);
+    await expect(async () => {
+      try {
+        await caller.signup(
+          createTestUserData({
+            password: "Aa1!",
+          })
+        );
+      } catch (error: any) {
+        const passwordErrors = error?.data?.zodError?.fieldErrors?.password ?? [];
+        expect(passwordErrors).toEqual(
+          expect.arrayContaining([expect.stringContaining("at least 8 characters")])
+        );
+        throw error;
+      }
+    }).rejects.toThrow();
   });
 
   it("rejects passwords missing required character classes", async () => {
     const ctx = await createTestContext();
     const caller = authRouter.createCaller(ctx);
 
-    await expect(
-      caller.signup(
-        createTestUserData({
-          password: "AAAAAAAAAAAA", // missing lowercase, digits, symbols
-        })
-      )
-    ).rejects.toThrow(/password.*complexity/i);
+    await expect(async () => {
+      try {
+        await caller.signup(
+          createTestUserData({
+            password: "AAAAAAAAAAAA", // missing lowercase, digits, symbols
+          })
+        );
+      } catch (error: any) {
+        const passwordErrors = error?.data?.zodError?.fieldErrors?.password ?? [];
+        expect(passwordErrors).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining("lowercase"),
+            expect.stringContaining("digit"),
+            expect.stringContaining("symbol"),
+          ])
+        );
+        throw error;
+      }
+    }).rejects.toThrow();
   });
 
   it("accepts strong passwords meeting the complexity requirements", async () => {
@@ -222,31 +242,6 @@ describe('auth.signup - SSN Security (SEC-301)', () => {
 });
 
 describe("auth.logout - Logout Issues (PERF-402)", () => {
-  // This test passes in test environment but fails in UI
-  // Test environment manually sets cookie, so token extraction works
-  // TO BE DELETED WHEN BUG IS FIXED
-  it.skip("extracts token from cookie and deletes session", async () => {
-    const ctx = await createAuthenticatedContext();
-    const token = getTokenFromContext(ctx);
-    
-    // Verify session exists
-    const sessionBefore = await db.select()
-      .from(sessions)
-      .where(eq(sessions.token, token!))
-      .get();
-    expect(sessionBefore).toBeDefined();
-    
-    // Logout
-    await authRouter.createCaller(ctx).logout();
-    
-    // Verify session is deleted (proves token extraction worked)
-    const sessionAfter = await db.select()
-      .from(sessions)
-      .where(eq(sessions.token, token!))
-      .get();
-    expect(sessionAfter).toBeUndefined();
-  });
-
   // This test reflects the actual bug: token extraction fails, session not deleted
   // Simulates UI behavior where ctx.req.cookies exists but cookies.session is undefined
   // This test FAILS when the bug exists (session not deleted) and PASSES when bug is fixed

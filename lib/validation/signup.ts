@@ -83,7 +83,23 @@ export const emailFieldSchema = z
     "Invalid email domain"
   );
 
-export const passwordFieldSchema = z.string().min(8);
+const PASSWORD_MIN_LENGTH = 8;
+
+export const passwordFieldSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
+  .refine((value) => /[a-z]/.test(value), {
+    message: "Password must include at least one lowercase letter",
+  })
+  .refine((value) => /[A-Z]/.test(value), {
+    message: "Password must include at least one uppercase letter",
+  })
+  .refine((value) => /\d/.test(value), {
+    message: "Password must include at least one digit",
+  })
+  .refine((value) => /[^A-Za-z0-9]/.test(value), {
+    message: "Password must include at least one symbol",
+  });
 
 const stateSchema = z
   .string()
