@@ -3,7 +3,23 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
+
+type AccountRecord = typeof accounts.$inferSelect;
+type TransactionRecord = typeof transactions.$inferSelect;
+
+const centsFromDollars = (amount: number) => Math.round(amount * 100);
+const dollarsFromCents = (cents: number) => cents / 100;
+
+const serializeAccount = (account: AccountRecord) => ({
+  ...account,
+  balance: dollarsFromCents(account.balance),
+});
+
+const serializeTransaction = (transaction: TransactionRecord) => ({
+  ...transaction,
+  amount: dollarsFromCents(transaction.amount),
+});
 
 function generateAccountNumber(): string {
   return Math.floor(Math.random() * 1000000000)
@@ -61,13 +77,13 @@ export const accountRouter = router({
         });
       }
 
-      return account;
+      return serializeAccount(account);
     }),
 
   getAccounts: protectedProcedure.query(async ({ ctx }) => {
     const userAccounts = await db.select().from(accounts).where(eq(accounts.userId, ctx.user.id));
 
-    return userAccounts;
+    return userAccounts.map(serializeAccount);
   }),
 
   fundAccount: protectedProcedure
@@ -83,7 +99,7 @@ export const accountRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const amount = parseFloat(input.amount.toString());
+      const amountCents = centsFromDollars(input.amount);
 
       // Verify account belongs to user
       const account = await db
@@ -107,34 +123,45 @@ export const accountRouter = router({
       }
 
       // Create transaction
-      await db.insert(transactions).values({
-        accountId: input.accountId,
-        type: "deposit",
-        amount,
-        description: `Funding from ${input.fundingSource.type}`,
-        status: "completed",
-        processedAt: new Date().toISOString(),
-      });
+      const insertedTransaction = await db
+        .insert(transactions)
+        .values({
+          accountId: input.accountId,
+          type: "deposit",
+          amount: amountCents,
+          description: `Funding from ${input.fundingSource.type}`,
+          status: "completed",
+          processedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
 
-      // Fetch the created transaction
-      const transaction = await db.select().from(transactions).orderBy(transactions.createdAt).limit(1).get();
+      if (!insertedTransaction) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to record transaction",
+        });
+      }
 
-      // Update account balance
-      await db
+      const updatedAccount = await db
         .update(accounts)
         .set({
-          balance: account.balance + amount,
+          balance: account.balance + amountCents,
         })
-        .where(eq(accounts.id, input.accountId));
+        .where(eq(accounts.id, input.accountId))
+        .returning()
+        .get();
 
-      let finalBalance = account.balance;
-      for (let i = 0; i < 100; i++) {
-        finalBalance = finalBalance + amount / 100;
+      if (!updatedAccount) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update account balance",
+        });
       }
 
       return {
-        transaction,
-        newBalance: finalBalance, // This will be slightly off due to float precision
+        transaction: serializeTransaction(insertedTransaction),
+        newBalance: dollarsFromCents(updatedAccount.balance),
       };
     }),
 
@@ -158,11 +185,12 @@ export const accountRouter = router({
           message: "Account not found",
         });
       }
-
+      // PERF-404: Transaction Ordering. No deterministic sorting of transactions.
       const accountTransactions = await db
         .select()
         .from(transactions)
-        .where(eq(transactions.accountId, input.accountId));
+        .where(eq(transactions.accountId, input.accountId))
+        .orderBy(desc(transactions.createdAt));
 
       const enrichedTransactions = [];
       for (const transaction of accountTransactions) {
@@ -174,6 +202,9 @@ export const accountRouter = router({
         });
       }
 
-      return enrichedTransactions;
+      return enrichedTransactions.map((transaction) => ({
+        ...serializeTransaction(transaction),
+        accountType: transaction.accountType,
+      }));
     }),
 });

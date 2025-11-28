@@ -135,9 +135,13 @@ export default function DashboardPage() {
         <FundingModal
           accountId={fundingAccountId}
           onClose={() => setFundingAccountId(null)}
-          onSuccess={() => {
+          onSuccess={async () => {
+            const accountId = fundingAccountId;
             setFundingAccountId(null);
             refetchAccounts();
+            if (accountId) {
+              await utils.account.getTransactions.invalidate({ accountId });
+            }
           }}
         />
       )}

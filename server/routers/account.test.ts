@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fc from 'fast-check';
 import { accountRouter } from './account';
 import { createAuthenticatedContext } from '../test-utils';
 import { db } from '@/lib/db';
@@ -26,7 +27,7 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
     await db.insert(transactions).values({
       accountId: account.id,
       type: 'deposit',
-      amount: 100.0,
+      amount: 10_000,
       description: xssPayload,
       status: 'completed',
       processedAt: new Date().toISOString(),
@@ -67,7 +68,7 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
       await db.insert(transactions).values({
         accountId: account.id,
         type: 'deposit',
-        amount: 100.0,
+        amount: 10_000,
         description: payload,
         status: 'completed',
         processedAt: new Date().toISOString(),
@@ -156,5 +157,112 @@ describe('account.createAccount - Error Handling (PERF-401)', () => {
       .where(eq(accounts.userId, ctx.user!.id))
       .all();
     expect(dbAccounts).toHaveLength(0);
+  });
+});
+
+describe('account.getTransactions - Ordering (PERF-404)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should always return transactions sorted by newest first (property-based)', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const datasetArb = fc.array(
+      fc.record({
+        description: fc.string({ minLength: 5, maxLength: 40 }),
+        createdAt: fc
+          .date({
+            min: new Date('2020-01-01T00:00:00.000Z'),
+            max: new Date('2025-12-31T23:59:59.999Z'),
+          })
+          .map((d) => d.toISOString()),
+        type: fc.constantFrom('deposit', 'withdrawal'),
+        amountCents: fc.integer({ min: 100, max: 500_000 }),
+      }),
+      { minLength: 2, maxLength: 6 }
+    );
+
+    const property = fc.asyncProperty(datasetArb, async (dataset) => {
+      await db.delete(transactions).where(eq(transactions.accountId, account.id)).run();
+
+      for (const tx of dataset) {
+        await db.insert(transactions).values({
+          accountId: account.id,
+          type: tx.type,
+          amount: tx.amountCents,
+          description: tx.description,
+          status: 'completed',
+          createdAt: tx.createdAt,
+          processedAt: tx.createdAt,
+        });
+      }
+
+      const result = await accountCaller.getTransactions({ accountId: account.id });
+      expect(result.length).toBe(dataset.length);
+
+      const timestamps = result.map((tx) => new Date(tx.createdAt!).getTime());
+      const sortedTimestamps = [...timestamps].sort((a, b) => b - a);
+      expect(timestamps).toEqual(sortedTimestamps);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
+  });
+});
+
+describe('account.fundAccount - Balance Precision (PERF-406)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should persist exact balances after many micro deposits', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const deposits = 500;
+    const depositAmount = 0.01;
+
+    for (let i = 0; i < deposits; i++) {
+      await accountCaller.fundAccount({
+        accountId: account.id,
+        amount: depositAmount,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '4111111111111111',
+        },
+      });
+    }
+
+    const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
+
+    const expectedCents = deposits * Math.round(depositAmount * 100);
+
+    expect(dbAccount).toBeTruthy();
+    expect(dbAccount?.balance).toBe(expectedCents);
+  });
+
+  it('should return the same balance that is stored in the database', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const result = await accountCaller.fundAccount({
+      accountId: account.id,
+      amount: 0.1,
+      fundingSource: {
+        type: 'card',
+        accountNumber: '4111111111111111',
+      },
+    });
+
+    const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
+
+    expect(dbAccount).toBeTruthy();
+    expect(result.newBalance).toBe(dbAccount!.balance / 100);
   });
 });

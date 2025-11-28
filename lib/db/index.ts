@@ -10,6 +10,22 @@ export const db = drizzle(sqlite, { schema });
 // Track initialization state to make initDb() idempotent
 let isInitialized = false;
 
+const SCHEMA_VERSION = 1;
+
+function migrateBalancesToCents() {
+  const currentVersion = sqlite.pragma("user_version", { simple: true }) as number;
+
+  if (currentVersion >= SCHEMA_VERSION) {
+    return;
+  }
+
+  sqlite.transaction(() => {
+    sqlite.prepare(`UPDATE accounts SET balance = ROUND(balance * 100)`).run();
+    sqlite.prepare(`UPDATE transactions SET amount = ROUND(amount * 100)`).run();
+    sqlite.pragma(`user_version = ${SCHEMA_VERSION}`);
+  })();
+}
+
 export function getConnectionCount(): number {
   // No orphaned connections to track anymore
   return 0;
@@ -60,7 +76,7 @@ export function initDb() {
       user_id INTEGER NOT NULL REFERENCES users(id),
       account_number TEXT UNIQUE NOT NULL,
       account_type TEXT NOT NULL,
-      balance REAL DEFAULT 0 NOT NULL,
+      balance INTEGER DEFAULT 0 NOT NULL,
       status TEXT DEFAULT 'pending',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -69,7 +85,7 @@ export function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL REFERENCES accounts(id),
       type TEXT NOT NULL,
-      amount REAL NOT NULL,
+      amount INTEGER NOT NULL,
       description TEXT,
       status TEXT DEFAULT 'pending' NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -85,6 +101,8 @@ export function initDb() {
     );
   `);
   
+  migrateBalancesToCents();
+
   isInitialized = true;
 }
 

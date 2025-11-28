@@ -54,3 +54,14 @@ describe('TransactionList - XSS Vulnerability Fix (SEC-303)', () => {
   });
 });
 
+describe('DashboardPage - Transaction history refresh (BUG-478)', () => {
+  it('should invalidate cached transactions after funding', () => {
+    const dashboardPath = resolve(process.cwd(), 'app/dashboard/page.tsx');
+    const dashboardSource = readFileSync(dashboardPath, 'utf-8');
+
+    const hasTransactionInvalidation = /utils\.account\.getTransactions\.invalidate/.test(dashboardSource);
+
+    expect(hasTransactionInvalidation).toBe(true);
+  });
+});
+
