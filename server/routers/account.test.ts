@@ -6,6 +6,36 @@ import { db } from '@/lib/db';
 import { transactions, accounts } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
+const DIGIT_REGEX = /^\d+$/;
+const digitArb = fc.integer({ min: 0, max: 9 }).map((n) => `${n}`);
+
+function luhnIsValid(value: string) {
+  if (!DIGIT_REGEX.test(value)) {
+    return false;
+  }
+  let sum = 0;
+  let double = false;
+  for (let i = value.length - 1; i >= 0; i--) {
+    let digit = Number(value[i]);
+    if (double) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+function luhnCheckDigit(body: string) {
+  for (let check = 0; check <= 9; check++) {
+    if (luhnIsValid(`${body}${check}`)) {
+      return check;
+    }
+  }
+  return 0;
+}
+
 describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
 
   it('should return transaction descriptions as-is', async () => {
@@ -291,33 +321,60 @@ describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)',
     ).rejects.toThrow(/routing/i);
   });
 
-  it('should reject card numbers with invalid length', async () => {
+  it('should reject card numbers with invalid length (property-based)', async () => {
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
-    await expect(
-      accountCaller.fundAccount({
-        accountId: account.id,
-        amount: 10,
-        fundingSource: {
-          type: 'card',
-          accountNumber: '41111111',
-        },
-      })
-    ).rejects.toThrow(/card/i);
+    const invalidLengthDigits = fc
+      .array(digitArb, { minLength: 1, maxLength: 30 })
+      .map((chars) => chars.join(""))
+      .filter((value) => value.length < 12 || value.length > 19);
+
+    const property = fc.asyncProperty(invalidLengthDigits, async (cardNumber) => {
+      await expect(
+        accountCaller.fundAccount({
+          accountId: account.id,
+          amount: 10,
+          fundingSource: {
+            type: 'card',
+            accountNumber: cardNumber,
+          },
+        })
+      ).rejects.toThrow(/card/i);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
   });
 
-  it('should reject card numbers that fail Luhn validation', async () => {
+  it('should reject card numbers that fail Luhn validation (property-based)', async () => {
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
-    await expect(
-      accountCaller.fundAccount({
-        accountId: account.id,
-        amount: 10,
-        fundingSource: {
-          type: 'card',
-          accountNumber: '4111111111111112',
-        },
+    const invalidLuhnDigits = fc
+      .tuple(
+        fc
+          .array(digitArb, { minLength: 11, maxLength: 18 })
+          .map((chars) => chars.join("")),
+        fc.integer({ min: 1, max: 9 })
+      )
+      .map(([body, delta]) => {
+        const check = luhnCheckDigit(body);
+        const invalidDigit = (check + delta) % 10;
+        return `${body}${invalidDigit}`;
       })
-    ).rejects.toThrow(/card/i);
+      .filter((value) => !luhnIsValid(value) && value.length >= 12 && value.length <= 19);
+
+    const property = fc.asyncProperty(invalidLuhnDigits, async (cardNumber) => {
+      await expect(
+        accountCaller.fundAccount({
+          accountId: account.id,
+          amount: 10,
+          fundingSource: {
+            type: 'card',
+            accountNumber: cardNumber,
+          },
+        })
+      ).rejects.toThrow(/card/i);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
   });
 });
