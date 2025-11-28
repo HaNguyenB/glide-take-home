@@ -53,7 +53,9 @@ export const accountRouter = router({
 
       // Fetch the created account
       const account = await db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber!)).get();
-
+      // PERF-401: Account Creation Error. 
+      // When the account fetch after insert return null or undefined, 
+      // the code returns a fallback object with balance: 100 instead of throwing an error.
       return (
         account || {
           id: 0,
