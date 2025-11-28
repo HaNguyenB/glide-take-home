@@ -82,10 +82,11 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
                 <span className="text-gray-500 sm:text-sm">$</span>
               </div>
               <input
+                // ISSUE: Values are hardcoded in the frontend because we don't have a backend validation for amounts.
                 {...register("amount", {
                   required: "Amount is required",
                   pattern: {
-                    value: /^\d+\.?\d{0,2}$/,
+                    value: /^(?:0|[1-9]\d*)?(?:\.\d{1,2})?$/,
                     message: "Invalid amount format",
                   },
                   min: {
