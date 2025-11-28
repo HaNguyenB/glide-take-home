@@ -33,6 +33,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.56.4",
+    "tlds": "^1.261.0",
+    "validator": "^13.15.23",
     "zod": "^3.25.36"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
-import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
@@ -9,42 +9,38 @@ import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSSN } from "@/lib/encryption";
 import { getSessionTokenFromContext } from "../utils/session-token";
-
-const EMAIL_TLD_TYPO_BLOCKLIST = [".con", ".cmo", ".vom", ".cim"];
-
-const signupInputSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .refine(
-      (value) => !EMAIL_TLD_TYPO_BLOCKLIST.some((suffix) => value.toLowerCase().endsWith(suffix)),
-      {
-        message: "Invalid email domain",
-      }
-    ), //ISSUE: VAL-201. Email lowercases user input and only checks generic RFC format.
-  password: z.string().min(8), // ISSUE: VAL-208. Password validation only checks length, not complexity.
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  phoneNumber: z.string().regex(/^\+?\d{10,15}$/), // ISSUE: VAL-204. Phone number regex too permissive.
-  dateOfBirth: z.string(), // ISSUE: VAL-202. Future birth dates accepted.
-  ssn: z.string().regex(/^\d{9}$/),
-  address: z.string().min(1),
-  city: z.string().min(1),
-  state: z.string().length(2).toUpperCase(), // ISSUE: VAL-203. State code validation is not strict.
-  zipCode: z.string().regex(/^\d{5}$/),
-});
+import {
+  emailValidationSchema,
+  signupInputSchema,
+  validateEmailField,
+} from "@/lib/validation/signup";
 
 export const authRouter = router({
+  validateEmail: publicProcedure
+    .input(emailValidationSchema)
+    .mutation(async ({ input }) => {
+      const validationResult = validateEmailField(input.email);
+      const existingUser = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, validationResult.normalizedEmail))
+        .get();
+
+      if (existingUser) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with this email already exists",
+        });
+      }
+
+      return validationResult;
+    }),
   signup: publicProcedure
     .input(signupInputSchema)
     // ISSUE: Signup doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
-      const notifications: Record<string, string> = {};
-      const normalizedEmail = input.email.toLowerCase();
-
-      if (normalizedEmail !== input.email) {
-        notifications.emailNormalization = "Email was converted to lowercase for consistency";
-      }
+      const { normalizedEmail, notifications } = validateEmailField(input.email);
+      const notificationBag: Record<string, string> = { ...notifications };
 
       // Check if user already has active session
       if (ctx.user) {
@@ -123,8 +119,8 @@ export const authRouter = router({
         notifications?: Record<string, string>;
       } = { user: sanitizeUser(user), token };
 
-      if (Object.keys(notifications).length > 0) {
-        response.notifications = notifications;
+      if (Object.keys(notificationBag).length > 0) {
+        response.notifications = notificationBag;
       }
 
       return response;

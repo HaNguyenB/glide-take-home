@@ -21,10 +21,32 @@ type SignupFormData = {
   zipCode: string;
 };
 
+const extractEmailErrorMessage = (error: any): string => {
+  const zodFieldError = error?.data?.zodError?.fieldErrors?.email?.[0];
+  if (zodFieldError) {
+    return zodFieldError;
+  }
+
+  if (typeof error?.message === "string") {
+    try {
+      const parsed = JSON.parse(error.message);
+      if (Array.isArray(parsed) && parsed[0]?.message) {
+        return parsed[0].message;
+      }
+    } catch {
+      // ignore JSON parse errors and fall back to message
+    }
+    return error.message;
+  }
+
+  return "Invalid email address";
+};
+
 export default function SignupPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [error, setError] = useState("");
+  const [emailNotice, setEmailNotice] = useState<string | null>(null);
 
   // Query current user to check authentication status
   const { data: currentUser, isLoading: isCheckingAuth } = trpc.auth.me.useQuery();
@@ -42,10 +64,21 @@ export default function SignupPage() {
     formState: { errors },
     watch,
     trigger,
+    setValue,
+    getValues,
+    setError: setFormError,
+    clearErrors,
   } = useForm<SignupFormData>();
   const signupMutation = trpc.auth.signup.useMutation();
+  const validateEmailMutation = trpc.auth.validateEmail.useMutation();
 
   const password = watch("password");
+  const watchedEmail = watch("email");
+
+  useEffect(() => {
+    setEmailNotice(null);
+    clearErrors("email");
+  }, [watchedEmail, clearErrors]);
 
   // Show loading state while checking authentication
   if (isCheckingAuth) {
@@ -74,9 +107,31 @@ export default function SignupPage() {
     }
 
     const isValid = await trigger(fieldsToValidate);
-    if (isValid) {
-      setStep(step + 1);
+    if (!isValid) {
+      return;
     }
+
+    if (step === 1) {
+      try {
+        const email = getValues("email");
+        const validationResult = await validateEmailMutation.mutateAsync({ email });
+        setValue("email", validationResult.normalizedEmail);
+        if (validationResult.notifications?.emailNormalization) {
+          setEmailNotice(validationResult.notifications.emailNormalization);
+        } else {
+          setEmailNotice(null);
+        }
+      } catch (err: any) {
+        setEmailNotice(null);
+        setFormError("email", {
+          type: "manual",
+          message: extractEmailErrorMessage(err),
+        });
+        return;
+      }
+    }
+
+    setStep(step + 1);
   };
 
   const prevStep = () => setStep(step - 1);
@@ -118,6 +173,9 @@ export default function SignupPage() {
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                 />
                 {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
+                {!errors.email && emailNotice && (
+                  <p className="mt-1 text-sm text-blue-600">{emailNotice}</p>
+                )}
               </div>
 
               <div>
@@ -333,9 +391,10 @@ export default function SignupPage() {
               <button
                 type="button"
                 onClick={nextStep}
-                className="ml-auto px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                disabled={step === 1 && validateEmailMutation.isPending}
+                className="ml-auto px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
-                Next
+                {step === 1 && validateEmailMutation.isPending ? "Validating..." : "Next"}
               </button>
             ) : (
               <button
