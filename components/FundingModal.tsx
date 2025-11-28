@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
+import { validateCardNumber } from "@/lib/validation/payment";
 
 interface FundingModalProps {
   accountId: number;
@@ -126,14 +127,14 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
               {...register("accountNumber", {
                 required: `${fundingType === "card" ? "Card" : "Account"} number is required`,
                 pattern: {
-                  value: fundingType === "card" ? /^\d{16}$/ : /^\d+$/,
-                  message: fundingType === "card" ? "Card number must be 16 digits" : "Invalid account number",
+                  value: /^\d+$/,
+                  message: fundingType === "card" ? "Card number must contain only digits" : "Invalid account number",
                 },
-                // ISSUE: VAL-210. Card type validation only checks basic prefixes, missing many valid cards.
                 validate: {
                   validCard: (value) => {
                     if (fundingType !== "card") return true;
-                    return value.startsWith("4") || value.startsWith("5") || "Invalid card number";
+                    const validation = validateCardNumber(value);
+                    return validation.isValid || validation.message;
                   },
                 },
               })}

@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { validateCardNumber } from "@/lib/validation/payment";
 
 type AccountRecord = typeof accounts.$inferSelect;
 type TransactionRecord = typeof transactions.$inferSelect;
@@ -107,6 +108,16 @@ export const accountRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const amountCents = centsFromDollars(input.amount);
+
+      if (input.fundingSource.type === "card") {
+        const cardValidation = validateCardNumber(input.fundingSource.accountNumber);
+        if (!cardValidation.isValid) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: cardValidation.message,
+          });
+        }
+      }
 
       // Verify account belongs to user
       const account = await db

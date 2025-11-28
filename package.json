@@ -26,6 +26,7 @@
     "@trpc/server": "^11.1.4",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
+    "card-validator": "^10.0.3",
     "drizzle-orm": "^0.44.0",
     "jsonwebtoken": "^9.0.2",
     "lightningcss": "^1.30.2",
