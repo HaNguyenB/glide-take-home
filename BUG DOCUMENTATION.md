@@ -287,8 +287,17 @@
 
 ### Direct-to-Main Fixes (No PR)
 - Summary: Hotfixes applied directly to main for UI and performance regressions.
-- 
 - Tickets: [UI-101](#ticket-ui-101), [PERF-407](#ticket-perf-407)
+ - **Ticket UI-101 – Dark Mode Text Visibilitys**
+ - Root cause:
+   - The app relied on browser/system defaults for form controls and did not include any dark-mode-safe styling.
+   - In system dark mode, the browser rendered input text as white while the input background could still be white, making typed text invisible.
+ - (Hot) Fix:
+   - Inputs now always render with dark text on a white background, even when the OS/browser is in dark mode, so the user can see what they’re typing.
+ - Technical debt:
+   - There is still no full theming system for the application; future work should introduce a proper light/dark theme instead of hard-coding light styles.
+
+
 
 ## UI Issues
 
