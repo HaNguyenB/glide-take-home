@@ -39,14 +39,27 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
     try {
       const amount = parseFloat(data.amount);
 
+      if (data.fundingType === "bank" && !data.routingNumber) {
+        setError("Routing number is required");
+        return;
+      }
+
+      const fundingSource =
+        data.fundingType === "card"
+          ? {
+              type: "card" as const,
+              accountNumber: data.accountNumber,
+            }
+          : {
+              type: "bank" as const,
+              accountNumber: data.accountNumber,
+              routingNumber: data.routingNumber!,
+            };
+
       await fundAccountMutation.mutateAsync({
         accountId,
         amount,
-        fundingSource: {
-          type: data.fundingType,
-          accountNumber: data.accountNumber,
-          routingNumber: data.routingNumber,
-        },
+        fundingSource,
       });
 
       onSuccess();

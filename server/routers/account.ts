@@ -91,11 +91,18 @@ export const accountRouter = router({
       z.object({
         accountId: z.number(),
         amount: z.number().positive(),
-        fundingSource: z.object({
-          type: z.enum(["card", "bank"]),
-          accountNumber: z.string(),
-          routingNumber: z.string().optional(), // ISSUE: VAL-207. Routing number is optional, so users can submit bank transfers without routing info.
-        }),
+        // Separated funding source into two types: card and bank because we need to validate different fields for each type.
+        fundingSource: z.discriminatedUnion("type", [
+          z.object({
+            type: z.literal("card"),
+            accountNumber: z.string(),
+          }),
+          z.object({
+            type: z.literal("bank"),
+            accountNumber: z.string(),
+            routingNumber: z.string().regex(/^\d{9}$/, "Routing number must be 9 digits"),
+          }),
+        ]),
       })
     )
     .mutation(async ({ input, ctx }) => {

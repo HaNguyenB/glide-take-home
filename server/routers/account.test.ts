@@ -286,7 +286,7 @@ describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)',
         fundingSource: {
           type: 'bank',
           accountNumber: '123456789',
-        },
+        } as any,
       })
     ).rejects.toThrow(/routing/i);
   });
