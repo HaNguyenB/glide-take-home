@@ -107,6 +107,12 @@ const dobSchema = z.string().transform((value, ctx) => {
   }
 });
 
+const phoneSchema = z
+  .string()
+  .refine((value) => /^\+[1-9]\d{9,14}$/.test(value), {
+    message: "Phone number must be in E.164 format (e.g., +14155551234)",
+  });
+
 // ============================================================================
 // MAIN SCHEMAS
 // ============================================================================
@@ -116,7 +122,7 @@ export const signupInputSchema = z.object({
   password: passwordFieldSchema,
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
+  phoneNumber: phoneSchema,
   dateOfBirth: dobSchema,
   ssn: z.string().regex(/^\d{9}$/),
   address: z.string().min(1),
