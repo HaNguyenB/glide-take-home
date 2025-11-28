@@ -1,3 +1,4 @@
+import { Temporal } from "@js-temporal/polyfill";
 import tlds from "tlds";
 import validator from "validator";
 import { z } from "zod";
@@ -20,13 +21,42 @@ export const emailFieldSchema = z
 
 export const passwordFieldSchema = z.string().min(8);
 
+export function parseAdultDob(value: string) {
+  let dob: Temporal.PlainDate;
+  try {
+    dob = Temporal.PlainDate.from(value);
+  } catch {
+    throw new Error("Invalid date of birth");
+  }
+
+  const today = Temporal.Now.plainDateISO();
+  const age = dob.until(today, { largestUnit: "years" }).years;
+
+  if (age < 18) {
+    throw new Error("You must be at least 18 years old to create an account");
+  }
+
+  return dob.toString();
+}
+
 export const signupInputSchema = z.object({
   email: emailFieldSchema,
   password: passwordFieldSchema,
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-  dateOfBirth: z.string(),
+  dateOfBirth: z.string().transform((value, ctx) => {
+    try {
+      return parseAdultDob(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : "Invalid date of birth",
+        path: ["dateOfBirth"],
+      });
+      return z.NEVER;
+    }
+  }),
   ssn: z.string().regex(/^\d{9}$/),
   address: z.string().min(1),
   city: z.string().min(1),

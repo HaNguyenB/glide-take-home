@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
 import Link from "next/link";
+import { parseAdultDob } from "@/lib/validation/signup";
 
 type SignupFormData = {
   email: string;
@@ -274,7 +275,19 @@ export default function SignupPage() {
                   Date of Birth
                 </label>
                 <input
-                  {...register("dateOfBirth", { required: "Date of birth is required" })}
+                  {...register("dateOfBirth", {
+                    required: "Date of birth is required",
+                    validate: (value) => {
+                      try {
+                        parseAdultDob(value);
+                        return true;
+                      } catch (error) {
+                        return error instanceof Error
+                          ? error.message
+                          : "You must be at least 18 years old to create an account";
+                      }
+                    },
+                  })}
                   type="date"
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
                 />
