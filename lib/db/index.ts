@@ -10,6 +10,22 @@ export const db = drizzle(sqlite, { schema });
 // Track initialization state to make initDb() idempotent
 let isInitialized = false;
 
+const SCHEMA_VERSION = 1;
+
+function migrateBalancesToCents() {
+  const currentVersion = sqlite.pragma("user_version", { simple: true }) as number;
+
+  if (currentVersion >= SCHEMA_VERSION) {
+    return;
+  }
+
+  sqlite.transaction(() => {
+    sqlite.prepare(`UPDATE accounts SET balance = ROUND(balance * 100)`).run();
+    sqlite.prepare(`UPDATE transactions SET amount = ROUND(amount * 100)`).run();
+    sqlite.pragma(`user_version = ${SCHEMA_VERSION}`);
+  })();
+}
+
 export function getConnectionCount(): number {
   // No orphaned connections to track anymore
   return 0;
@@ -85,6 +101,8 @@ export function initDb() {
     );
   `);
   
+  migrateBalancesToCents();
+
   isInitialized = true;
 }
 
