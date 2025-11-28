@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { validateCardNumber } from "@/lib/validation/payment";
 
 type AccountRecord = typeof accounts.$inferSelect;
 type TransactionRecord = typeof transactions.$inferSelect;
@@ -85,21 +86,38 @@ export const accountRouter = router({
 
     return userAccounts.map(serializeAccount);
   }),
-
+  // ISSUE: VAL-206. System accepts invalid card numbers because backend never re-validates card numbers.
   fundAccount: protectedProcedure
     .input(
       z.object({
         accountId: z.number(),
         amount: z.number().positive(),
-        fundingSource: z.object({
-          type: z.enum(["card", "bank"]),
-          accountNumber: z.string(),
-          routingNumber: z.string().optional(),
-        }),
+        // Separated funding source into two types: card and bank because we need to validate different fields for each type.
+        fundingSource: z.discriminatedUnion("type", [
+          z.object({
+            type: z.literal("card"),
+            accountNumber: z.string(),
+          }),
+          z.object({
+            type: z.literal("bank"),
+            accountNumber: z.string(),
+            routingNumber: z.string().regex(/^\d{9}$/, "Routing number must be 9 digits"),
+          }),
+        ]),
       })
     )
     .mutation(async ({ input, ctx }) => {
       const amountCents = centsFromDollars(input.amount);
+
+      if (input.fundingSource.type === "card") {
+        const cardValidation = validateCardNumber(input.fundingSource.accountNumber);
+        if (!cardValidation.isValid) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: cardValidation.message,
+          });
+        }
+      }
 
       // Verify account belongs to user
       const account = await db

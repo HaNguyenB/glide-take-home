@@ -5,6 +5,9 @@ import { createAuthenticatedContext } from '../test-utils';
 import { db } from '@/lib/db';
 import { transactions, accounts } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { validateCardNumber } from '@/lib/validation/payment';
+
+const digitArb = fc.integer({ min: 0, max: 9 }).map((n) => `${n}`);
 
 describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
 
@@ -172,13 +175,15 @@ describe('account.getTransactions - Ordering (PERF-404)', () => {
   it('should always return transactions sorted by newest first (property-based)', async () => {
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
+    const minDate = new Date(Date.UTC(2020, 0, 1, 0, 0, 0, 0));
+    const maxDate = new Date(Date.UTC(2025, 11, 31, 23, 59, 59, 999));
     const datasetArb = fc.array(
       fc.record({
         description: fc.string({ minLength: 5, maxLength: 40 }),
         createdAt: fc
           .date({
-            min: new Date('2020-01-01T00:00:00.000Z'),
-            max: new Date('2025-12-31T23:59:59.999Z'),
+            min: minDate,
+            max: maxDate,
           })
           .map((d) => d.toISOString()),
         type: fc.constantFrom('deposit', 'withdrawal'),
@@ -264,5 +269,103 @@ describe('account.fundAccount - Balance Precision (PERF-406)', () => {
 
     expect(dbAccount).toBeTruthy();
     expect(result.newBalance).toBe(dbAccount!.balance / 100);
+  });
+});
+
+describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should reject bank funding without a routing number', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 10,
+        fundingSource: {
+          type: 'bank',
+          accountNumber: '123456789',
+        } as any,
+      })
+    ).rejects.toThrow(/routing/i);
+  });
+
+  it('should reject card numbers with invalid length (property-based)', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const invalidLengthDigits = fc
+      .array(digitArb, { minLength: 1, maxLength: 30 })
+      .map((chars) => chars.join(""))
+      .filter((value) => value.length < 12 || value.length > 19);
+
+    const property = fc.asyncProperty(invalidLengthDigits, async (cardNumber) => {
+      await expect(
+        accountCaller.fundAccount({
+          accountId: account.id,
+          amount: 10,
+          fundingSource: {
+            type: 'card',
+            accountNumber: cardNumber,
+          },
+        })
+      ).rejects.toThrow(/card/i);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
+  });
+
+  it('should reject card numbers card-validator marks invalid (property-based)', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const invalidCardDigits = fc
+      .array(digitArb, { minLength: 12, maxLength: 19 })
+      .map((chars) => chars.join(""))
+      .filter((value) => !validateCardNumber(value).isValid);
+
+    const property = fc.asyncProperty(invalidCardDigits, async (cardNumber) => {
+      await expect(
+        accountCaller.fundAccount({
+          accountId: account.id,
+          amount: 10,
+          fundingSource: {
+            type: 'card',
+            accountNumber: cardNumber,
+          },
+        })
+      ).rejects.toThrow(/card/i);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
+  });
+});
+
+describe('account.fundAccount - Zero Amount Validation (VAL-205)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should reject funding requests for $0.00', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 0,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '4111111111111111',
+        },
+      })
+    ).rejects.toThrow(/greater than 0/i);
   });
 });
