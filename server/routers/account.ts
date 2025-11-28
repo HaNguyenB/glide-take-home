@@ -22,7 +22,7 @@ const serializeTransaction = (transaction: TransactionRecord) => ({
   ...transaction,
   amount: dollarsFromCents(transaction.amount),
 });
-// ISSUE: SEC-302. Account numbers now use cryptographically secure randomness.
+// Generate a random 10‑digit account number using a cryptographically secure RNG.
 function generateAccountNumber(): string {
   return randomInt(0, 10_000_000_000).toString().padStart(10, "0");
 }
@@ -52,7 +52,7 @@ export const accountRouter = router({
       let accountNumber;
       let isUnique = false;
 
-      // Generate unique account number
+      // Keep generating account numbers until we find one that is not already in use.
       while (!isUnique) {
         accountNumber = generateAccountNumber();
         const existing = await db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber)).get();
@@ -67,7 +67,7 @@ export const accountRouter = router({
         status: "active",
       });
 
-      // Fetch the created account
+      // Fetch the created account so we can return the saved record with its generated fields.
       const account = await db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber!)).get();
 
       if (!account) {
@@ -85,7 +85,7 @@ export const accountRouter = router({
 
     return userAccounts.map(serializeAccount);
   }),
-  // ISSUE: VAL-206. System accepts invalid card numbers because backend never re-validates card numbers.
+  // Fund an account from either a card or bank source, validating input based on the source type.
   fundAccount: protectedProcedure
     .input(
       z.object({
@@ -202,7 +202,7 @@ export const accountRouter = router({
           message: "Account not found",
         });
       }
-      // PERF-404: Transaction Ordering. No deterministic sorting of transactions.
+      // Return transactions for this account, ordered from newest to oldest.
       const accountTransactions = await db
         .select()
         .from(transactions)

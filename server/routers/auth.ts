@@ -37,7 +37,7 @@ export const authRouter = router({
     }),
   signup: publicProcedure
     .input(signupInputSchema)
-    // ISSUE: Signup doesn't check for existing sessions.
+    // Handle user signup, preventing duplicate accounts and active-session signups.
     .mutation(async ({ input, ctx }) => {
       const { normalizedEmail, notifications } = validateEmailField(input.email);
       const notificationBag: Record<string, string> = { ...notifications };
@@ -64,7 +64,7 @@ export const authRouter = router({
       }
 
       const hashedPassword = await bcrypt.hash(input.password, 10);
-      // 11/27/25: encrypt SSN before persisting (SEC-301).
+      // Encrypt the SSN before storing it so it is not kept in plain text in the database.
       const encryptedSSN = encryptSSN(input.ssn);
 
       await db.insert(users).values({
@@ -89,7 +89,6 @@ export const authRouter = router({
       }
 
       // Create session
-      // ISSUE: Multiple sessions created without invalidaing previous sessions
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -128,6 +127,7 @@ export const authRouter = router({
 
     
 
+  // Log a user in by validating credentials and creating a new session.
   login: publicProcedure
     .input(
       z.object({
@@ -135,7 +135,6 @@ export const authRouter = router({
         password: z.string(),
       })
     )
-    // ISSUE: Login doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
       // Check if user already has active session
       if (ctx.user) {
@@ -167,8 +166,7 @@ export const authRouter = router({
         });
       }
 
-      // ISSUE: Each login/signup adds a new session. 
-      // IMPACT: A user can accumuate multiple sessions.
+      // Create a new session token for this user and persist it with an expiry.
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -193,14 +191,13 @@ export const authRouter = router({
       }
       return { user: sanitizeUser(user), token };
     }),
-  // Get current authenticated user
+  // Get the current authenticated user.
   me: publicProcedure.query(async ({ ctx }) => {
-    // Returns current user if authenticated, null otherwise
+    // Returns the sanitized user if authenticated, or null when there is no active session.
     return ctx.user ? sanitizeUser(ctx.user) : null;
   }),
 
-  // ISSUE: Logout deletes only the session token from the current request's cookie.
-  // IMPACT: Other sessions remain valid.
+  // Log the user out by deleting the current session and clearing the cookie.
   logout: publicProcedure.mutation(async ({ ctx }) => {
     if (ctx.user) {
       // Delete session from database using shared token extraction

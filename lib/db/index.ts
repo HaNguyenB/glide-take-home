@@ -106,6 +106,5 @@ export function initDb() {
   isInitialized = true;
 }
 
-// Initialize database on import
-// PERF-408 FIX: initDb() no longer creates orphaned connections
+// Initialize database on import. initDb() is idempotent and does not create extra connections.
 initDb();

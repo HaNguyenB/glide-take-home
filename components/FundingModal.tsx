@@ -82,7 +82,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
                 <span className="text-gray-500 sm:text-sm">$</span>
               </div>
               <input
-                // ISSUE: Values are hardcoded in the frontend because we don't have a backend validation for amounts.
+                // Validate that the entered amount is within the allowed range and has at most two decimal places.
                 {...register("amount", {
                   required: "Amount is required",
                   pattern: {

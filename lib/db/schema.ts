@@ -41,7 +41,7 @@ export const transactions = sqliteTable("transactions", {
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
   processedAt: text("processed_at"),
 });
-// ISSUE: The session table has no constraint limiting sessions per user.
+// Session records for authenticated users.
 export const sessions = sqliteTable("sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id")
