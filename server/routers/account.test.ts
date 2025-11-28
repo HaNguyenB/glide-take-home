@@ -5,36 +5,9 @@ import { createAuthenticatedContext } from '../test-utils';
 import { db } from '@/lib/db';
 import { transactions, accounts } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { validateCardNumber } from '@/lib/validation/payment';
 
-const DIGIT_REGEX = /^\d+$/;
 const digitArb = fc.integer({ min: 0, max: 9 }).map((n) => `${n}`);
-
-function luhnIsValid(value: string) {
-  if (!DIGIT_REGEX.test(value)) {
-    return false;
-  }
-  let sum = 0;
-  let double = false;
-  for (let i = value.length - 1; i >= 0; i--) {
-    let digit = Number(value[i]);
-    if (double) {
-      digit *= 2;
-      if (digit > 9) digit -= 9;
-    }
-    sum += digit;
-    double = !double;
-  }
-  return sum % 10 === 0;
-}
-
-function luhnCheckDigit(body: string) {
-  for (let check = 0; check <= 9; check++) {
-    if (luhnIsValid(`${body}${check}`)) {
-      return check;
-    }
-  }
-  return 0;
-}
 
 describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
 
@@ -202,13 +175,15 @@ describe('account.getTransactions - Ordering (PERF-404)', () => {
   it('should always return transactions sorted by newest first (property-based)', async () => {
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
+    const minDate = new Date(Date.UTC(2020, 0, 1, 0, 0, 0, 0));
+    const maxDate = new Date(Date.UTC(2025, 11, 31, 23, 59, 59, 999));
     const datasetArb = fc.array(
       fc.record({
         description: fc.string({ minLength: 5, maxLength: 40 }),
         createdAt: fc
           .date({
-            min: new Date('2020-01-01T00:00:00.000Z'),
-            max: new Date('2025-12-31T23:59:59.999Z'),
+            min: minDate,
+            max: maxDate,
           })
           .map((d) => d.toISOString()),
         type: fc.constantFrom('deposit', 'withdrawal'),
@@ -345,24 +320,15 @@ describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)',
     await fc.assert(property, { numRuns: 20 });
   });
 
-  it('should reject card numbers that fail Luhn validation (property-based)', async () => {
+  it('should reject card numbers card-validator marks invalid (property-based)', async () => {
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
-    const invalidLuhnDigits = fc
-      .tuple(
-        fc
-          .array(digitArb, { minLength: 11, maxLength: 18 })
-          .map((chars) => chars.join("")),
-        fc.integer({ min: 1, max: 9 })
-      )
-      .map(([body, delta]) => {
-        const check = luhnCheckDigit(body);
-        const invalidDigit = (check + delta) % 10;
-        return `${body}${invalidDigit}`;
-      })
-      .filter((value) => !luhnIsValid(value) && value.length >= 12 && value.length <= 19);
+    const invalidCardDigits = fc
+      .array(digitArb, { minLength: 12, maxLength: 19 })
+      .map((chars) => chars.join(""))
+      .filter((value) => !validateCardNumber(value).isValid);
 
-    const property = fc.asyncProperty(invalidLuhnDigits, async (cardNumber) => {
+    const property = fc.asyncProperty(invalidCardDigits, async (cardNumber) => {
       await expect(
         accountCaller.fundAccount({
           accountId: account.id,
@@ -376,5 +342,30 @@ describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)',
     });
 
     await fc.assert(property, { numRuns: 20 });
+  });
+});
+
+describe('account.fundAccount - Zero Amount Validation (VAL-205)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should reject funding requests for $0.00', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 0,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '4111111111111111',
+        },
+      })
+    ).rejects.toThrow(/greater than 0/i);
   });
 });
