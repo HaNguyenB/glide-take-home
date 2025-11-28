@@ -131,10 +131,72 @@
       - Make “money is always stored as integer cents” a hard rule, enforced via code review and tests.
       - Centralize currency conversion helpers and require their use anywhere amounts cross the API/DB boundary.
       - Add regression tests that compare the stored balance to the sum of all transactions to ensure they always match.
+  - **Ticket PERF-405 – Missing Transactions**
+    - Root cause:
+      - After funding an account, the app never invalidated or refetched the `account.getTransactions` query, so `TransactionList` kept showing a stale cache.
+      - `FundingModal`’s success handler only closed the modal and refreshed account balances; it never told tRPC to refresh the transaction history.
+    - How it was fixed:
+      - Updated `DashboardPage` so a successful funding now also triggers `utils.account.getTransactions.invalidate(...)` for the funded account.
+      - This forces the transaction list to refetch and include the new deposit(s) without a full page reload.
+    - Tests:
+      - Added a regression test in `components/TransactionList.test.tsx` that renders the dashboard and asserts we call `utils.account.getTransactions.invalidate(...)` when funding completes.
+      - The test failed before the fix and now passes, protecting against future cache-related regressions.
+    - Preventive measures:
+      - Always refresh or invalidate the transaction list after funding.
+      - Keep the regression test that checks this refresh happens so future changes can’t regress silently.
+
+  - **Ticket PERF-404 – Transaction Sorting**
+    - Root cause:
+      - `accountRouter.getTransactions` ran without an `ORDER BY`, so SQLite returned rows in whatever order was convenient.
+    - How it was fixed:
+      - Added `.orderBy(desc(transactions.createdAt))` so the API always returns newest-first.
+    - Tests:
+      - Added a property-based test in `server/routers/account.test.ts` (PERF-404) that asserts results are sorted newest-first.
+    - Preventive measures:
+      - Make it standard that any endpoint returning lists must specify an explicit sort that matches UX expectations; never rely on the database’s default ordering.
+
 
 ### PR 7 – Account Validation Bug
 - Summary: Tighten email, DOB, state, phone, and password rules during account setup.
 - Tickets: [VAL-201](#ticket-val-201), [VAL-202](#ticket-val-202), [VAL-203](#ticket-val-203), [VAL-204](#ticket-val-204), [VAL-208](#ticket-val-208)
+  - **Ticket VAL-201 – Email Validation Problems**
+    - Root causes:
+      - The signup schema lowercased email addresses silently and relied mostly on generic RFC-style validation.
+      - Users were never told their email had been normalized, and obvious typo domains like `.con` passed through.
+    - How it was fixed:
+      - Introduced a shared `lib/validation/signup.ts` schema so client and server both use the same email rules.
+      - Added `validator.js` syntax checks plus a lightweight `tlds` lookup so TLDs must be real (e.g., `.con` now fails).
+      - Added `auth.validateEmail`, which normalizes the email, returns any notices (like casing changes), and blocks duplicates early.
+    - Preventive measures:
+      - Keep email validation logic centralized and unit-tested before changing auth or signup flows.
+      - Clearly document normalization behavior (e.g., lowercasing) so it’s an intentional part of the API contract, not a surprise.
+      - Watch metrics on rejected domains to quickly add new common typos to the validation strategy.
+    - Trade-offs:
+      - New dependencies (`validator`, `tlds`, and a small type stub) slightly increase bundle size and need occasional updates.
+      - We still only check syntax + TLD, not mailbox deliverability; future work may add DNS or API-based checks if needed.
+  - **Ticket VAL-202 – Date of Birth Validation**
+    - Root causes:
+      - The signup form accepted any text for `dateOfBirth` without checking if it was a real date or that the user was at least 18.
+      - Problems only surfaced at the very end of the flow as vague backend errors, even for future dates or obvious underage users.
+    - How it was fixed:
+      - Added a shared `parseAdultDob` validator that uses the Temporal polyfill to safely parse ISO dates, calculate age, and return clear errors.
+      - Updated the signup schema so `dateOfBirth` is always run through this validator, guaranteeing a clean ISO date and rejecting underage users consistently.
+      - Wired the same validator into the Next.js form via React Hook Form rules, so users now see inline feedback like “You must be at least 18 years old to create an account” on the DOB step.
+    - Preventive measures:
+      - Keep complex rules such as age checks in shared validation modules used by both frontend and backend.
+      - Add focused tests for each rule before changing any signup or business logic that depends on it.
+      - Use robust date libraries (Temporal/date-fns) instead of hand-rolled age math.
+  - **Ticket VAL-203 – State Code Validation**
+    - Root causes:
+      - The system only verified that `state` was two characters long.
+      - Any two-character string such as `"XX"` or `"@@"` was accepted, even if it wasn’t a real USPS state code.
+    - How it was fixed:
+      - Introduced a shared `USPS_STATE_CODES` list with all valid two-letter abbreviations.
+      - Updated the Zod schema and signup form to require that `state` exists in this list.
+      - Invalid entries now immediately show an “Invalid state code” message in the form.
+    - Preventive measures:
+      - Prefer explicit allow-lists for constrained fields (states, countries, etc.) instead of loose length checks.
+      - Reuse the same allow-list in both frontend and backend validation to keep behavior consistent.
 
 ### PR 8 – Transaction & Funding Validation
 - Summary: Strengthen card, routing, zero-amount, amount-format, and card-type validations.
@@ -429,6 +491,11 @@ fetch("http://localhost:3000/api/trpc/account.getTransactions?batch=1&input=%7B%
 - Priority: Critical
 - Description: "Not all transactions appear in history after multiple funding events"
 - Impact: Users cannot verify all their transactions
+- Steps to Reproduce:
+  1. Fund the same account multiple times within a single session.
+  2. Observe that the account balance updates immediately.
+  3. Notice that the transaction history does **not** show the new transactions until the page is manually reloaded.
+
 
 <a id="ticket-perf-406"></a>
 ### Ticket PERF-406: Balance Calculation
