@@ -85,16 +85,52 @@
       - Add tests for logout across different environments (cookies vs. headers) so this flow can’t silently break again.
 
 ### PR 4 – Resource Leak Fix
-- Summary: Close lingering DB connections and add monitoring alerts.
+- Summary: Stop leaking SQLite connections and make DB lifecycle explicit.
 - Tickets: [PERF-408](#ticket-perf-408)
+  - Root causes:
+    - The app created new SQLite connections without reliably closing old ones.
+    - There was no single place to manage DB startup/shutdown or track open handles.
+  - How it was fixed:
+    - Centralized DB setup in `lib/db/index.ts` with `initDb`, `getSqliteConnection`, and `closeDb`.
+    - Made `initDb` idempotent and ensured `closeDb` actually closes the connection and resets state.
+    - Simplified `getConnectionCount` so we can quickly confirm we’re not leaking extra connections.
+  - Preventive measures:
+    - Always use the shared DB helpers instead of creating raw `new Database()` instances.
+    - Add tests (or health checks) that assert a stable connection count before and after high-traffic operations.
 
 ### PR 5 – Account Creation Error
-- Summary: Prevent incorrect default balances when account creation DB writes fail.
+- Summary: Make account creation fail loudly instead of returning a fake $100 balance.
 - Tickets: [PERF-401](#ticket-perf-401)
+  - Root causes:
+    - `createAccount` used a hard-coded fallback object (with `balance: 100` and `status: "pending"`) when the post-insert fetch returned `null` or `undefined`.
+    - There was no proper error handling for failed inserts, unlike `authRouter.signup`, which throws when the user fetch fails.
+  - How it was fixed:
+    - Updated `account.createAccount` to throw a `TRPCError("INTERNAL_SERVER_ERROR")` when the follow-up fetch fails instead of returning the bogus fallback account.
+    - Brought the error-handling pattern in line with `authRouter` so both flows behave consistently on DB failure.
+  - Tests:
+    - Added tests around “Account Creation – Error Handling (PERF-401)” to cover both failure paths: a `null` fetch and an insert that throws.
+    - These tests ensure no silent fallbacks or phantom $100 accounts can slip through again.
+  - Preventive measures:
+    - Use a shared pattern for create flows: `insert → fetch → if missing, throw TRPCError`, never return synthetic records.
+    - Prefer explicit error paths over “best effort” fallbacks when dealing with money and account state.
 
 ### PR 6 – Funding & Transaction Accuracy
 - Summary: Stabilize balances, ensure every funding event persists, and make transaction ordering deterministic.
 - Tickets: [PERF-406](#ticket-perf-406), [PERF-405](#ticket-perf-405), [PERF-404](#ticket-perf-404)
+  - **Ticket PERF-406 – Balance Calculation**
+    - Root causes:
+      - `accounts.balance` and `transactions.amount` were stored as floating-point values, so many deposits/withdrawals caused rounding errors and drift.
+      - `fundAccount` recalculated the returned balance via repeated float additions instead of trusting the single source of truth in the database.
+    - How it was fixed:
+      - Switched `accounts.balance` and `transactions.amount` to integer cents so all math is exact.
+      - Converted incoming dollar amounts to cents on write, and divided by 100 on read for API responses.
+      - Removed the incremental floating-point loop in `fundAccount` and now return the authoritative balance directly from the DB.
+    - Technical debt:
+      - The migration that converts existing balances to cents lives inside `lib/db/index.ts` (`SCHEMA_VERSION` + `migrateBalancesToCents`), mixing schema upgrades with app bootstrap instead of using a proper migration tool.
+    - Preventive measures:
+      - Make “money is always stored as integer cents” a hard rule, enforced via code review and tests.
+      - Centralize currency conversion helpers and require their use anywhere amounts cross the API/DB boundary.
+      - Add regression tests that compare the stored balance to the sum of all transactions to ensure they always match.
 
 ### PR 7 – Account Validation Bug
 - Summary: Tighten email, DOB, state, phone, and password rules during account setup.
@@ -349,6 +385,13 @@ fetch("http://localhost:3000/api/trpc/account.getTransactions?batch=1&input=%7B%
 - Priority: High
 - Description: "Multiple valid sessions per user, no invalidation"
 - Impact: Security risk from unauthorized access
+- How to reproduce:
+  1. Sign up for a new account.
+  2. Run `npm run db:list-sessions` to confirm a single session exists.
+  3. Go to `http://localhost:3000/signup` and sign in with the same credentials.
+  4. Run `npm run db:list-sessions` again and observe there are now two sessions.
+  5. Click “Log out” in the UI.
+  6. Run `npm run db:list-sessions` one more time — both sessions are still present, showing logout did not invalidate them.
 
 ## Logic and Performance Issues
 
