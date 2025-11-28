@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { trpc } from "@/lib/trpc/client";
@@ -14,6 +14,16 @@ type LoginFormData = {
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
+
+  // Query current user to check authentication status
+  const { data: currentUser, isLoading: isCheckingAuth } = trpc.auth.me.useQuery();
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    if (currentUser) {
+      router.push("/dashboard");
+    }
+  }, [currentUser, router]);
 
   const {
     register,
@@ -31,6 +41,23 @@ export default function LoginPage() {
       setError(err.message || "Invalid credentials");
     }
   };
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-sm text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render form if user is authenticated (redirect will happen)
+  if (currentUser) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">

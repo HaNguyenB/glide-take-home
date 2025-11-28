@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { users, sessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { encryptSSN } from "@/lib/encryption";
+import { getSessionTokenFromContext } from "../utils/session-token";
 
 export const authRouter = router({
   signup: publicProcedure
@@ -26,7 +27,16 @@ export const authRouter = router({
         zipCode: z.string().regex(/^\d{5}$/),
       })
     )
+    // ISSUE: Signup doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      // Check if user already has active session
+      if (ctx.user) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot signup while already logged in. Please logout first.",
+        });
+      }
+      // Check if user already exists
       const existingUser = await db
         .select()
         .from(users)
@@ -65,6 +75,7 @@ export const authRouter = router({
       }
 
       // Create session
+      // ISSUE: Multiple sessions created without invalidaing previous sessions
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -91,6 +102,8 @@ export const authRouter = router({
       return { user: sanitizeUser(user), token };
     }),
 
+    
+
   login: publicProcedure
     .input(
       z.object({
@@ -98,7 +111,16 @@ export const authRouter = router({
         password: z.string(),
       })
     )
+    // ISSUE: Login doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      // Check if user already has active session
+      if (ctx.user) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot login while already logged in. Please logout first.",
+        });
+      }
+      // Check if user exists
       const user = await db
         .select()
         .from(users)
@@ -121,6 +143,8 @@ export const authRouter = router({
         });
       }
 
+      // ISSUE: Each login/signup adds a new session. 
+      // IMPACT: A user can accumuate multiple sessions.
       const token = createSessionToken(user.id);
 
       const expiresAt = new Date();
@@ -145,21 +169,19 @@ export const authRouter = router({
       }
       return { user: sanitizeUser(user), token };
     }),
+  // Get current authenticated user
+  me: publicProcedure.query(async ({ ctx }) => {
+    // Returns current user if authenticated, null otherwise
+    return ctx.user ? sanitizeUser(ctx.user) : null;
+  }),
 
+  // ISSUE: Logout deletes only the session token from the current request's cookie.
+  // IMPACT: Other sessions remain valid.
   logout: publicProcedure.mutation(async ({ ctx }) => {
     if (ctx.user) {
-      // Delete session from database
-      let token: string | undefined;
-      if ("cookies" in ctx.req) {
-        token = (ctx.req as any).cookies.session;
-      } else {
-        const cookieHeader =
-          ctx.req.headers.get?.("cookie") || (ctx.req.headers as any).cookie;
-        token = cookieHeader
-          ?.split("; ")
-          .find((c: string) => c.startsWith("session="))
-          ?.split("=")[1];
-      }
+      // Delete session from database using shared token extraction
+      const token = getSessionTokenFromContext(ctx);
+      
       if (token) {
         await db.delete(sessions).where(eq(sessions.token, token));
       }

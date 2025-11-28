@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { db } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getSessionToken } from "./utils/session-token";
 
 export async function createContext(opts: CreateNextContextOptions | FetchCreateContextFnOptions) {
   // Handle different adapter types
@@ -21,29 +22,8 @@ export async function createContext(opts: CreateNextContextOptions | FetchCreate
     res = opts.resHeaders;
   }
 
-  // Get the session token
-  let token: string | undefined;
-
-  // For App Router, we need to read cookies from the request headers
-  let cookieHeader = "";
-  if (req.headers.cookie) {
-    // Next.js Pages request
-    cookieHeader = req.headers.cookie;
-  } else if (req.headers.get) {
-    // Fetch request (App Router)
-    cookieHeader = req.headers.get("cookie") || "";
-  }
-
-  const cookiesObj = Object.fromEntries(
-    cookieHeader
-      .split("; ")
-      .filter(Boolean)
-      .map((c: string) => {
-        const [key, ...val] = c.split("=");
-        return [key, val.join("=")];
-      })
-  );
-  token = cookiesObj.session;
+  // Get the session token using shared utility
+  const token = getSessionToken(req);
 
   let user = null;
   if (token) {
@@ -53,15 +33,21 @@ export async function createContext(opts: CreateNextContextOptions | FetchCreate
       };
 
       const session = await db.select().from(sessions).where(eq(sessions.token, token)).get();
-
-      if (session && new Date(session.expiresAt) > new Date()) {
+      
+      // PERF-403: Capture current time once to avoid timing precision issues
+      // This ensures consistent timestamp comparison and prevents expired sessions
+      // from being considered valid due to race conditions between multiple new Date() calls
+      const now = new Date();
+      const expiresAt = session ? new Date(session.expiresAt) : null;
+      
+      if (session && expiresAt && expiresAt > now) {
         const dbUser = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
         if (dbUser) {
           const { password, ssn, ...safeUser } = dbUser;
           // 11/27/25: prevent SSN/password from leaking via context (SEC-301).
           user = safeUser as typeof dbUser;
         }
-        const expiresIn = new Date(session.expiresAt).getTime() - new Date().getTime();
+        const expiresIn = expiresAt.getTime() - now.getTime();
         if (expiresIn < 60000) {
           console.warn("Session about to expire");
         }
