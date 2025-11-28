@@ -14,7 +14,15 @@ export default function DashboardPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
   const { data: accounts, refetch: refetchAccounts } = trpc.account.getAccounts.useQuery();
-  const logoutMutation = trpc.auth.logout.useMutation();
+  const utils = trpc.useUtils();
+  const logoutMutation = trpc.auth.logout.useMutation({
+    onSuccess: () => {
+      // Reset auth.me query to immediately clear cached user data
+      // Using resetQueries instead of invalidate ensures the cache is cleared
+      // immediately, preventing stale data from being returned when navigating to /login
+      utils.auth.me.reset();
+    },
+  });
 
   const handleLogout = async () => {
     await logoutMutation.mutateAsync();
