@@ -14,16 +14,16 @@ export const authRouter = router({
   signup: publicProcedure
     .input(
       z.object({
-        email: z.string().email().toLowerCase(),
-        password: z.string().min(8),
+        email: z.string().email().toLowerCase(), //ISSUE: VAL-201. Email lowercases user input and only checks generic RFC format.
+        password: z.string().min(8), // ISSUE: VAL-208. Password validation only checks length, not complexity.
         firstName: z.string().min(1),
         lastName: z.string().min(1),
-        phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-        dateOfBirth: z.string(),
+        phoneNumber: z.string().regex(/^\+?\d{10,15}$/), // ISSUE: VAL-204. Phone number regex too permissive.
+        dateOfBirth: z.string(), // ISSUE: VAL-202. Future birth dates accepted.
         ssn: z.string().regex(/^\d{9}$/),
         address: z.string().min(1),
         city: z.string().min(1),
-        state: z.string().length(2).toUpperCase(),
+        state: z.string().length(2).toUpperCase(), // ISSUE: VAL-203. State code validation is not strict.
         zipCode: z.string().regex(/^\d{5}$/),
       })
     )
