@@ -116,6 +116,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
                   value: fundingType === "card" ? /^\d{16}$/ : /^\d+$/,
                   message: fundingType === "card" ? "Card number must be 16 digits" : "Invalid account number",
                 },
+                // ISSUE: VAL-210. Card type validation only checks basic prefixes, missing many valid cards.
                 validate: {
                   validCard: (value) => {
                     if (fundingType !== "card") return true;

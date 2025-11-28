@@ -85,7 +85,7 @@ export const accountRouter = router({
 
     return userAccounts.map(serializeAccount);
   }),
-
+  // ISSUE: VAL-206. System accepts invalid card numbers because backend never re-validates card numbers.
   fundAccount: protectedProcedure
     .input(
       z.object({
@@ -94,7 +94,7 @@ export const accountRouter = router({
         fundingSource: z.object({
           type: z.enum(["card", "bank"]),
           accountNumber: z.string(),
-          routingNumber: z.string().optional(),
+          routingNumber: z.string().optional(), // ISSUE: VAL-207. Routing number is optional, so users can submit bank transfers without routing info.
         }),
       })
     )
