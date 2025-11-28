@@ -10,8 +10,18 @@ import { eq } from "drizzle-orm";
 import { encryptSSN } from "@/lib/encryption";
 import { getSessionTokenFromContext } from "../utils/session-token";
 
+const EMAIL_TLD_TYPO_BLOCKLIST = [".con", ".cmo", ".vom", ".cim"];
+
 const signupInputSchema = z.object({
-  email: z.string().email().toLowerCase(), //ISSUE: VAL-201. Email lowercases user input and only checks generic RFC format.
+  email: z
+    .string()
+    .email()
+    .refine(
+      (value) => !EMAIL_TLD_TYPO_BLOCKLIST.some((suffix) => value.toLowerCase().endsWith(suffix)),
+      {
+        message: "Invalid email domain",
+      }
+    ), //ISSUE: VAL-201. Email lowercases user input and only checks generic RFC format.
   password: z.string().min(8), // ISSUE: VAL-208. Password validation only checks length, not complexity.
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -29,6 +39,13 @@ export const authRouter = router({
     .input(signupInputSchema)
     // ISSUE: Signup doesn't check for existing sessions.
     .mutation(async ({ input, ctx }) => {
+      const notifications: Record<string, string> = {};
+      const normalizedEmail = input.email.toLowerCase();
+
+      if (normalizedEmail !== input.email) {
+        notifications.emailNormalization = "Email was converted to lowercase for consistency";
+      }
+
       // Check if user already has active session
       if (ctx.user) {
         throw new TRPCError({
@@ -40,7 +57,7 @@ export const authRouter = router({
       const existingUser = await db
         .select()
         .from(users)
-        .where(eq(users.email, input.email))
+        .where(eq(users.email, normalizedEmail))
         .get();
 
       if (existingUser) {
@@ -56,6 +73,7 @@ export const authRouter = router({
 
       await db.insert(users).values({
         ...input,
+        email: normalizedEmail,
         ssn: encryptedSSN,
         password: hashedPassword,
       });
@@ -64,7 +82,7 @@ export const authRouter = router({
       const user = await db
         .select()
         .from(users)
-        .where(eq(users.email, input.email))
+        .where(eq(users.email, normalizedEmail))
         .get();
 
       if (!user) {
@@ -99,7 +117,17 @@ export const authRouter = router({
           `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`
         );
       }
-      return { user: sanitizeUser(user), token };
+      const response: {
+        user: ReturnType<typeof sanitizeUser>;
+        token: string;
+        notifications?: Record<string, string>;
+      } = { user: sanitizeUser(user), token };
+
+      if (Object.keys(notifications).length > 0) {
+        response.notifications = notifications;
+      }
+
+      return response;
     }),
 
     
