@@ -197,17 +197,97 @@
     - Preventive measures:
       - Prefer explicit allow-lists for constrained fields (states, countries, etc.) instead of loose length checks.
       - Reuse the same allow-list in both frontend and backend validation to keep behavior consistent.
+  - **Ticket VAL-204 – Phone Number Format**
+    - Root causes:
+      - Phone validation was a simple regex that only checked for 10–15 digits with an optional leading `+`.
+      - It didn’t enforce E.164 formatting, a valid country code, or require `+` for international numbers, so many bogus “international” numbers slipped through.
+    - How it was fixed:
+      - Added a shared `phoneSchema` that enforces true E.164 format: a `+`, a country code, and 9–14 digits.
+      - Hooked this schema into both the signup backend and the React Hook Form rules so the same rule runs everywhere.
+      - The form now shows a clear hint like “Use E.164 format (e.g., +14155551234)” when users enter invalid numbers.
+    - Preventive measures:
+      - Keep phone rules centralized in the shared validation module so client and server can’t drift.
+      - Prefer well-known standards (like E.164) over custom, one-off regexes.
+  - **Ticket VAL-208 – Weak Password Requirements**
+    - Root causes:
+      - Password validation only checked length, so weak strings like `password123` still passed.
+      - There were no checks for character variety, making passwords easier to guess or brute-force.
+    - How it was fixed:
+      - Added a shared password schema that requires at least 8 characters plus one lowercase, one uppercase, one digit, and one symbol.
+      - Hooked that schema into the signup form so users see the same requirements live as they type.
+      - The form now gives instant feedback when a required character type is missing, instead of failing only at submit time.
+    - Preventive measures:
+      - Keep password rules centralized and reuse them anywhere credentials are created or changed.
+      - Prefer standards-aligned complexity rules and update them as security guidance evolves.
 
 ### PR 8 – Transaction & Funding Validation
 - Summary: Strengthen card, routing, zero-amount, amount-format, and card-type validations.
 - Tickets: [VAL-206](#ticket-val-206), [VAL-207](#ticket-val-207), [VAL-210](#ticket-val-210), [VAL-205](#ticket-val-205), [VAL-209](#ticket-val-209)
+  - **Ticket VAL-205 – Zero Amount Funding**
+    - Root cause:
+      - The funding form treated `0.00` as valid because the `min` validator was set to `0.0`, so users could submit $0 deposits that wasted backend resources.
+    - How it was fixed:
+      - Updated the form schema so the minimum amount is now `0.01`, matching the copy and backend expectations; zero-dollar requests never hit the API.
+      - The backend double-checks the amount in cents to ensure nothing below one cent is persisted.
+    - Preventive measures:
+      - Keep validation limits (like minimum amounts) defined in a single shared schema so the UI and API never drift.
+      - Add regression tests that explicitly try to submit zero or negative amounts to guarantee they’re rejected.
+  - **Ticket VAL-206 – Card Number Validation**
+    - Root causes:
+      - The backend trusted whatever card number the UI sent, so any 16-digit string could fund an account—even if it failed Luhn or didn’t match a real brand.
+    - How it was fixed:
+      - Added `validateCardNumber` (built on `card-validator`) and called it inside `accountRouter.fundAccount` before any DB writes; requests that fail brand-specific length/Luhn checks are rejected immediately.
+    - Tests:
+      - Property-based tests cover invalid-length and invalid-Luhn scenarios to keep the validator honest.
+    - Preventive measures:
+      - Keep card validation logic centralized so new brands/prefixes only need to be added once.
+      - Rely on well-maintained libraries (like `card-validator`) instead of custom, ad-hoc regexes.
+  - **Ticket VAL-207 – Routing Number Optional**
+    - Root causes:
+      - `fundAccount` accepted a `fundingSource` object where `routingNumber` was optional, so bank transfers could be submitted without routing info.
+      - `FundingModal` always sent the same payload regardless of funding type, so TypeScript couldn’t help enforce routing numbers for bank transfers.
+    - How it was fixed:
+      - Updated `FundingModal` to branch on `fundingType` and show an inline error if you try to submit a bank transfer without a routing number; the payloads are now distinct for card vs. bank sources.
+      - Switched `accountRouter.fundAccount` to a Zod discriminated union where the “bank” variant requires `routingNumber` to be a 9-digit string; UI bypass attempts now fail validation server-side.
+    - Preventive measures:
+      - Prefer discriminated unions for multi-source inputs so each variant can enforce its own required fields.
+      - Keep frontend and backend schemas in sync so optional vs. required fields don’t drift.
+  - **Ticket VAL-210 – Card Type Detection**
+    - Root causes:
+      - The frontend only allowed Visa/Mastercard prefixes via a simple `startsWith` check.
+      - Valid brands like AmEx and Discover were blocked, while some invalid numbers could still pass.
+    - How it was fixed:
+      - Updated `FundingModal` to import and use the shared card helper, so brand detection and validation now come from the same source as the backend.
+      - The UI now surfaces the helper’s brand-aware error messages immediately when a number doesn’t match a supported card type.
+    - Preventive measures:
+      - Keep brand and prefix logic centralized in one helper so new brands or rule changes only need to be updated once.
+      - Avoid duplicating card-type rules in the UI; always call into the shared validator instead.
+  - **Ticket VAL-209 – Amount Input Issues**
+    - Root cause:
+      - The amount field’s regex (`^\d+\.?\d{0,2}$`) allowed values with multiple leading zeros (e.g., `00045.67`), so malformed amounts still made it to the backend.
+      - The server lacked equivalent validation, so whatever the UI sent was treated as a valid deposit.
+    - How it was fixed:
+      - Tightened the amount regex to `^(?:0|[1-9]\d*)?(?:\.\d{1,2})?$`, which rejects numbers with multiple leading zeros while still allowing `0.xx` and standard whole-dollar values.
+      - The form now blocks malformed inputs before submission, keeping the data clean without relying solely on server logic.
+    - Technical debt:
+      - Validation rules (regex, min/max) still live only in the frontend; the backend trusts the client. Any gaps in UI validation can still become production bugs.
+    - Preventive measures:
+      - Mirror amount validation on the backend so every request is re-validated server-side.
+      - Move shared rules (regex, min/max) into a common schema to avoid drift between UI and API.
 
 ### PR 9 – Insecure Random Numbers
 - Summary: Replace `Math.random()` account number generation with a cryptographically secure approach.
 - Tickets: [SEC-302](#ticket-sec-302)
+  - Root cause:
+    - `generateAccountNumber` used `Math.random()` to build 10-digit account numbers, making them predictable.
+  - How it was fixed:
+    - Switched `generateAccountNumber` to use Node’s `crypto.randomInt`, which is cryptographically secure, before padding to 10 digits.
+  - Preventive measures:
+    - Always use cryptographically secure APIs (`crypto.randomInt`, `crypto.randomBytes`, Web Crypto, etc.) for any identifier, token, or secret that has security implications (accounts, session IDs, reset tokens).
 
 ### Direct-to-Main Fixes (No PR)
 - Summary: Hotfixes applied directly to main for UI and performance regressions.
+- 
 - Tickets: [UI-101](#ticket-ui-101), [PERF-407](#ticket-perf-407)
 
 ## UI Issues
