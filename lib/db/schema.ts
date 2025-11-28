@@ -24,7 +24,7 @@ export const accounts = sqliteTable("accounts", {
     .notNull(),
   accountNumber: text("account_number").unique().notNull(),
   accountType: text("account_type").notNull(), // checking, savings
-  balance: real("balance").default(0).notNull(),
+  balance: real("balance").default(0).notNull(), // ISSUE: PERF-406: Balance Calculation. balance is stored as a float
   status: text("status").default("pending"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
@@ -35,7 +35,7 @@ export const transactions = sqliteTable("transactions", {
     .references(() => accounts.id)
     .notNull(),
   type: text("type").notNull(), // deposit, withdrawal
-  amount: real("amount").notNull(),
+  amount: real("amount").notNull(), // ISSUE: PERF-406: Balance Calculation. amount is stored as a float
   description: text("description"), //Description are stored as plain text
   status: text("status").default("pending").notNull(),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),

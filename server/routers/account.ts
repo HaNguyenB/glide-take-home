@@ -127,6 +127,11 @@ export const accountRouter = router({
         })
         .where(eq(accounts.id, input.accountId));
 
+      // PERF-406: Balance Calculation. 
+      // instead of returning the persisted balance from the database
+      // it recomputes a newBalance by looping 100 times and adding amount / 100, 
+      // explicitly “slightly” corrupting the decimal representation 
+      // before sending it back to the client.
       let finalBalance = account.balance;
       for (let i = 0; i < 100; i++) {
         finalBalance = finalBalance + amount / 100;
