@@ -6,18 +6,17 @@ export const emailFieldSchema = z
   .string({ required_error: "Email is required" })
   .trim()
   .min(1, "Email is required")
-  .refine((value) => validator.isEmail(value, { allow_utf8_local_part: false, require_tld: true }), {
-    message: "Invalid email address",
-  })
-  .refine((value) => {
-    const domainPart = value.split("@")[1]?.toLowerCase();
-    if (!domainPart) {
-      return false;
-    }
-    const segments = domainPart.split(".");
-    const tld = segments[segments.length - 1];
-    return Boolean(tld && tlds.includes(tld));
-  }, "Invalid email domain");
+  .refine(
+    (value) => validator.isEmail(value, { allow_utf8_local_part: false, require_tld: true }),
+    { message: "Invalid email address" }
+  )
+  .refine(
+    (value) => {
+      const tld = value.split("@")[1]?.split(".").pop()?.toLowerCase();
+      return tld && tlds.includes(tld);
+    },
+    { message: "Invalid email domain" }
+  );
 
 export const passwordFieldSchema = z.string().min(8);
 
@@ -68,4 +67,3 @@ export function validateEmailField(email: string) {
     notifications,
   };
 }
-
