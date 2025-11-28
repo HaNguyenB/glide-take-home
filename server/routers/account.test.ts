@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fc from 'fast-check';
 import { accountRouter } from './account';
 import { createAuthenticatedContext } from '../test-utils';
 import { db } from '@/lib/db';
@@ -156,6 +157,60 @@ describe('account.createAccount - Error Handling (PERF-401)', () => {
       .where(eq(accounts.userId, ctx.user!.id))
       .all();
     expect(dbAccounts).toHaveLength(0);
+  });
+});
+
+describe('account.getTransactions - Ordering (PERF-404)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should always return transactions sorted by newest first (property-based)', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const datasetArb = fc.array(
+      fc.record({
+        description: fc.string({ minLength: 5, maxLength: 40 }),
+        createdAt: fc
+          .date({
+            min: new Date('2020-01-01T00:00:00.000Z'),
+            max: new Date('2025-12-31T23:59:59.999Z'),
+          })
+          .map((d) => d.toISOString()),
+        type: fc.constantFrom('deposit', 'withdrawal'),
+        amountCents: fc.integer({ min: 100, max: 500_000 }),
+      }),
+      { minLength: 2, maxLength: 6 }
+    );
+
+    const property = fc.asyncProperty(datasetArb, async (dataset) => {
+      await db.delete(transactions).where(eq(transactions.accountId, account.id)).run();
+
+      for (const tx of dataset) {
+        await db.insert(transactions).values({
+          accountId: account.id,
+          type: tx.type,
+          amount: tx.amountCents,
+          description: tx.description,
+          status: 'completed',
+          createdAt: tx.createdAt,
+          processedAt: tx.createdAt,
+        });
+      }
+
+      const result = await accountCaller.getTransactions({ accountId: account.id });
+      expect(result.length).toBe(dataset.length);
+
+      const timestamps = result.map((tx) => new Date(tx.createdAt!).getTime());
+      const sortedTimestamps = [...timestamps].sort((a, b) => b - a);
+      expect(timestamps).toEqual(sortedTimestamps);
+    });
+
+    await fc.assert(property, { numRuns: 20 });
   });
 });
 

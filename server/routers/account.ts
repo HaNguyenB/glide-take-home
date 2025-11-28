@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 type AccountRecord = typeof accounts.$inferSelect;
 type TransactionRecord = typeof transactions.$inferSelect;
@@ -185,11 +185,12 @@ export const accountRouter = router({
           message: "Account not found",
         });
       }
-
+      // PERF-404: Transaction Ordering. No deterministic sorting of transactions.
       const accountTransactions = await db
         .select()
         .from(transactions)
-        .where(eq(transactions.accountId, input.accountId));
+        .where(eq(transactions.accountId, input.accountId))
+        .orderBy(desc(transactions.createdAt));
 
       const enrichedTransactions = [];
       for (const transaction of accountTransactions) {

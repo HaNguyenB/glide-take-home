@@ -11,6 +11,9 @@
 !.yarn/versions
 node_portable/
 
+# debug files
+/scripts   
+
 # testing
 /coverage
 
