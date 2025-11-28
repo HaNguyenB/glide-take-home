@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { describe, it, expect } from 'vitest';
 import { authRouter } from './auth';
 import { 
@@ -6,12 +7,167 @@ import {
   createAuthenticatedContext,
   getUserSessions,
   getTokenFromContext,
-  createContextWithToken,
-  createMultipleSessions
 } from '../test-utils';
 import { db } from '@/lib/db';
 import { users, sessions } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+
+describe("auth.signup - Input Validation Issues (VAL-201, VAL-202, VAL-203, VAL-204, VAL-208)", () => {
+  it("notifies users when their email is normalized to lowercase", async () => {
+    const baseData = createTestUserData();
+    const upperEmail = baseData.email.toUpperCase();
+    const testData = {
+      ...baseData,
+      email: upperEmail,
+    };
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    const result = await caller.signup(testData);
+    const response = result as any;
+
+    expect(response.user.email).toBe(upperEmail.toLowerCase());
+    expect(response.notifications?.emailNormalization).toBe(
+      "Email was converted to lowercase for consistency"
+    );
+  });
+
+  it("rejects email addresses with common typo TLDs like .con", async () => {
+    const typoEmail = `user-${crypto.randomUUID()}@example.con`;
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          email: typoEmail,
+        })
+      )
+    ).rejects.toThrow(/invalid email/i);
+  });
+
+  it("rejects signup attempts when user is younger than 18", async () => {
+    const currentYear = new Date().getFullYear();
+    const minorDob = `${currentYear - 10}-01-01`;
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          dateOfBirth: minorDob,
+        })
+      )
+    ).rejects.toThrow(/must be at least 18/i);
+  });
+
+  it("allows signup when user is 18 or older", async () => {
+    const currentYear = new Date().getFullYear();
+    const adultDob = `${currentYear - 25}-01-01`;
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    const result = await caller.signup(
+      createTestUserData({
+        dateOfBirth: adultDob,
+      })
+    );
+
+    expect(result.user.dateOfBirth).toBe(adultDob);
+  });
+
+  it("rejects invalid state codes that are not in the USPS list", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          state: "XX",
+        })
+      )
+    ).rejects.toThrow(/state code/i);
+  });
+
+  it("accepts valid USPS state abbreviations", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    const result = await caller.signup(
+      createTestUserData({
+        state: "CA",
+      })
+    );
+
+    expect(result.user.state).toBe("CA");
+  });
+
+  it("rejects phone numbers that are not in E.164 format", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          phoneNumber: "4155551234",
+        })
+      )
+    ).rejects.toThrow(/phone number/i);
+  });
+
+  it("accepts phone numbers in strict E.164 format", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    const result = await caller.signup(
+      createTestUserData({
+        phoneNumber: "+14155551234",
+      })
+    );
+
+    expect(result.user.phoneNumber).toBe("+14155551234");
+  });
+
+  it("rejects passwords that are too short", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          password: "Aa1!",
+        })
+      )
+    ).rejects.toThrow(/password.*length/i);
+  });
+
+  it("rejects passwords missing required character classes", async () => {
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    await expect(
+      caller.signup(
+        createTestUserData({
+          password: "AAAAAAAAAAAA", // missing lowercase, digits, symbols
+        })
+      )
+    ).rejects.toThrow(/password.*complexity/i);
+  });
+
+  it("accepts strong passwords meeting the complexity requirements", async () => {
+    const strongPassword = "Str0ng!Passw0rd";
+    const ctx = await createTestContext();
+    const caller = authRouter.createCaller(ctx);
+
+    const result = await caller.signup(
+      createTestUserData({
+        password: strongPassword,
+      })
+    );
+
+    expect(result.user.email).toBeDefined();
+  });
+});
 
 describe('auth.signup - SSN Security (SEC-301)', () => {
 
