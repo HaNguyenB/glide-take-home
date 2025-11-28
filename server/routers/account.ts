@@ -53,20 +53,15 @@ export const accountRouter = router({
 
       // Fetch the created account
       const account = await db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber!)).get();
-      // PERF-401: Account Creation Error. 
-      // When the account fetch after insert return null or undefined, 
-      // the code returns a fallback object with balance: 100 instead of throwing an error.
-      return (
-        account || {
-          id: 0,
-          userId: ctx.user.id,
-          accountNumber: accountNumber!,
-          accountType: input.accountType,
-          balance: 100,
-          status: "pending",
-          createdAt: new Date().toISOString(),
-        }
-      );
+
+      if (!account) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create account",
+        });
+      }
+
+      return account;
     }),
 
   getAccounts: protectedProcedure.query(async ({ ctx }) => {
