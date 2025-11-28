@@ -10,6 +10,29 @@ export const db = drizzle(sqlite, { schema });
 
 const connections: Database.Database[] = [];
 
+export function getConnectionCount(): number {
+  return connections.length;
+}
+
+export function getSqliteConnection(): Database.Database {
+  return sqlite;
+}
+
+export function closeDb(): void {
+  // Close all tracked connections
+  connections.forEach(conn => {
+    if (conn.open) {
+      conn.close();
+    }
+  });
+  connections.length = 0; // Clear the array
+  
+  // Close the global sqlite connection
+  if (sqlite.open) {
+    sqlite.close();
+  }
+}
+
 export function initDb() {
   // PERF-408: Resource Leak. New connection is created but never used.
   const conn = new Database(dbPath);
