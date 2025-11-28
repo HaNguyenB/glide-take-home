@@ -288,16 +288,24 @@
 ### Direct-to-Main Fixes (No PR)
 - Summary: Hotfixes applied directly to main for UI and performance regressions.
 - Tickets: [UI-101](#ticket-ui-101), [PERF-407](#ticket-perf-407)
- - **Ticket UI-101 – Dark Mode Text Visibilitys**
- - Root cause:
-   - The app relied on browser/system defaults for form controls and did not include any dark-mode-safe styling.
-   - In system dark mode, the browser rendered input text as white while the input background could still be white, making typed text invisible.
- - (Hot) Fix:
-   - Inputs now always render with dark text on a white background, even when the OS/browser is in dark mode, so the user can see what they’re typing.
- - Technical debt:
-   - There is still no full theming system for the application; future work should introduce a proper light/dark theme instead of hard-coding light styles.
-
-
+  - **Ticket UI-101 – Dark Mode Text Visibility**
+    - Root cause:
+      - The app relied on browser/system defaults for form controls and did not include any dark-mode-safe styling.
+      - In system dark mode, the browser rendered input text as white while the input background could still be white, making typed text invisible.
+    - (Hot) Fix:
+      - Inputs now always render with dark text on a white background, even when the OS/browser is in dark mode, so the user can see what they’re typing.
+    - Technical debt:
+      - There is still no full theming system for the application; future work should introduce a proper light/dark theme instead of hard-coding light styles.
+  - **Ticket PERF-407 – Performance Degradation**
+    - Root cause:
+      - An early attempt to “enrich” each transaction fetched account details inside a loop, creating an N+1 query pattern under load.
+      - As the number of transactions grew, this per-transaction account lookup made the history endpoint noticeably slower.
+    - Fix:
+      - Simplified `getTransactions` to fetch the account once, fetch all transactions once, and then attach the already-known `accountType` in memory.
+      - This keeps the work to a constant number of queries per request, even when there are many transactions.
+    - Preventive measures:
+      - Watch for N+1 query patterns when joining related data; prefer “fetch once + in-memory mapping” over per-row queries.
+      - Add performance tests or query-count assertions around high-volume endpoints so accidental N+1 changes are caught early.
 
 ## UI Issues
 
