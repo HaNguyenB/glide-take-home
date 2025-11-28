@@ -158,3 +158,53 @@ describe('account.createAccount - Error Handling (PERF-401)', () => {
     expect(dbAccounts).toHaveLength(0);
   });
 });
+
+describe('account.fundAccount - Balance Precision (PERF-406)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should persist exact balances after many micro deposits', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const deposits = 500;
+    const depositAmount = 0.01;
+
+    for (let i = 0; i < deposits; i++) {
+      await accountCaller.fundAccount({
+        accountId: account.id,
+        amount: depositAmount,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '4111111111111111',
+        },
+      });
+    }
+
+    const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
+
+    expect(dbAccount).toBeTruthy();
+    expect(dbAccount?.balance).toBe(deposits * depositAmount);
+  });
+
+  it('should return the same balance that is stored in the database', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    const result = await accountCaller.fundAccount({
+      accountId: account.id,
+      amount: 0.1,
+      fundingSource: {
+        type: 'card',
+        accountNumber: '4111111111111111',
+      },
+    });
+
+    const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
+
+    expect(result.newBalance).toBe(dbAccount?.balance);
+  });
+});
