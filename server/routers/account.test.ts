@@ -266,3 +266,58 @@ describe('account.fundAccount - Balance Precision (PERF-406)', () => {
     expect(result.newBalance).toBe(dbAccount!.balance / 100);
   });
 });
+
+describe('account.fundAccount - Payment Validation (VAL-206, VAL-207, VAL-210)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  it('should reject bank funding without a routing number', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 10,
+        fundingSource: {
+          type: 'bank',
+          accountNumber: '123456789',
+        },
+      })
+    ).rejects.toThrow(/routing/i);
+  });
+
+  it('should reject card numbers with invalid length', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 10,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '41111111',
+        },
+      })
+    ).rejects.toThrow(/card/i);
+  });
+
+  it('should reject card numbers that fail Luhn validation', async () => {
+    const account = await accountCaller.createAccount({ accountType: 'checking' });
+
+    await expect(
+      accountCaller.fundAccount({
+        accountId: account.id,
+        amount: 10,
+        fundingSource: {
+          type: 'card',
+          accountNumber: '4111111111111112',
+        },
+      })
+    ).rejects.toThrow(/card/i);
+  });
+});
