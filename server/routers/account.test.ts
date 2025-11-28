@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { accountRouter } from './account';
 import { createAuthenticatedContext } from '../test-utils';
 import { db } from '@/lib/db';
@@ -12,12 +12,10 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
     const accountCaller = accountRouter.createCaller(ctx);
     const account = await accountCaller.createAccount({ accountType: 'checking' });
     
-    // ✅ Verify account was actually created with a valid ID
     expect(account).toBeTruthy();
     expect(account.id).toBeDefined();
     expect(account.id).toBeGreaterThan(0);
     
-    // ✅ Verify account exists in database
     const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
     expect(dbAccount).toBeTruthy();
     expect(dbAccount?.id).toBe(account.id);
@@ -48,12 +46,10 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
     const accountCaller = accountRouter.createCaller(ctx);
     const account = await accountCaller.createAccount({ accountType: 'checking' });
 
-    // ✅ Verify account was actually created with a valid ID
     expect(account).toBeTruthy();
     expect(account.id).toBeDefined();
     expect(account.id).toBeGreaterThan(0);
     
-    // ✅ Verify account exists in database
     const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
     expect(dbAccount).toBeTruthy();
     expect(dbAccount?.id).toBe(account.id);
@@ -67,7 +63,6 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
       '<iframe src="javascript:alert(1)"></iframe>',
     ];
 
-    // ✅ Insert all transactions
     for (const payload of xssPayloads) {
       await db.insert(transactions).values({
         accountId: account.id,
@@ -85,5 +80,81 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
     result.forEach((transaction, index) => {
       expect(transaction.description).toBe(xssPayloads[index]);
     });
+  });
+});
+
+describe('account.createAccount - Error Handling (PERF-401)', () => {
+  let ctx: Awaited<ReturnType<typeof createAuthenticatedContext>>;
+  let accountCaller: ReturnType<typeof accountRouter.createCaller>;
+
+  beforeEach(async () => {
+    ctx = await createAuthenticatedContext();
+    accountCaller = accountRouter.createCaller(ctx);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should throw error when account fetch fails after insert', async () => {
+    const originalSelect = db.select;
+    const originalInsert = db.insert;
+    let insertCompleted = false;
+    
+    // Mock insert to track when it completes
+    vi.spyOn(db, 'insert').mockImplementation(function(this: typeof db, table: Parameters<typeof db.insert>[0]) {
+      const insertBuilder = originalInsert.call(this, table);
+      const originalValues = insertBuilder.values;
+      
+      insertBuilder.values = function(vals: any) {
+        insertCompleted = true;
+        return originalValues.call(this, vals);
+      };
+      
+      return insertBuilder;
+    });
+    
+    // Mock select to fail ONLY after insert completes
+    vi.spyOn(db, 'select').mockImplementation(function(this: typeof db) {
+      const queryBuilder = (originalSelect as any).call(this);
+      
+      if (insertCompleted) {
+        const originalFrom = queryBuilder.from;
+        queryBuilder.from = function(table: any) {
+          const fromBuilder = originalFrom.call(this, table);
+          const originalWhere = fromBuilder.where;
+          
+          fromBuilder.where = function(condition: any) {
+            const whereBuilder = originalWhere.call(this, condition);
+            whereBuilder.get = () => null;
+            return whereBuilder;
+          };
+          
+          return fromBuilder;
+        };
+      }
+      
+      return queryBuilder;
+    });
+
+    await expect(
+      accountCaller.createAccount({ accountType: 'checking' })
+    ).rejects.toThrow();
+  });
+
+  it('should throw error when database insert fails', async () => {
+    vi.spyOn(db, 'insert').mockImplementation(() => {
+      throw new Error('Database connection failed');
+    });
+
+    await expect(
+      accountCaller.createAccount({ accountType: 'checking' })
+    ).rejects.toThrow('Database connection failed');
+
+    const dbAccounts = await db.select()
+      .from(accounts)
+      .where(eq(accounts.userId, ctx.user!.id))
+      .all();
+    expect(dbAccounts).toHaveLength(0);
   });
 });
