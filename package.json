@@ -16,9 +16,9 @@
     "db:list-sessions": "node scripts/db-utils.js list-sessions",
     "db:clear": "node scripts/db-utils.js clear",
     "db:delete-user": "node scripts/db-utils.js delete-user"
-    
   },
   "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
     "@tanstack/react-query": "^5.79.0",
     "@trpc/client": "^11.1.4",
     "@trpc/next": "^11.1.4",
