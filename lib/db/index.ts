@@ -4,14 +4,15 @@ import * as schema from "./schema";
 
 // Use in-memory database for testing. Otherwise, use the file database.
 const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : 'bank.db'
-// PERF-408: Resource Leak. No connection cleanup mechanism.
-const sqlite = new Database(dbPath);
+let sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });
 
-const connections: Database.Database[] = [];
+// Track initialization state to make initDb() idempotent
+let isInitialized = false;
 
 export function getConnectionCount(): number {
-  return connections.length;
+  // No orphaned connections to track anymore
+  return 0;
 }
 
 export function getSqliteConnection(): Database.Database {
@@ -19,24 +20,22 @@ export function getSqliteConnection(): Database.Database {
 }
 
 export function closeDb(): void {
-  // Close all tracked connections
-  connections.forEach(conn => {
-    if (conn.open) {
-      conn.close();
-    }
-  });
-  connections.length = 0; // Clear the array
-  
-  // Close the global sqlite connection
-  if (sqlite.open) {
+  if (sqlite.open) {  
     sqlite.close();
   }
+  // Reset initialization state so initDb() can be called again
+  isInitialized = false;
 }
 
 export function initDb() {
-  // PERF-408: Resource Leak. New connection is created but never used.
-  const conn = new Database(dbPath);
-  connections.push(conn);
+  // If connection is already initialized, return
+  if (isInitialized) {
+    return;
+  }
+  // If connection is not open, create a new one
+  if (!sqlite.open) {
+    sqlite = new Database(dbPath);
+  }
 
   // Create tables if they don't exist
   sqlite.exec(`
@@ -85,9 +84,10 @@ export function initDb() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  
+  isInitialized = true;
 }
 
 // Initialize database on import
-// PERF-408: Resource Leak. initDb() runs on module import
-// creating an orphaned connection that never gets closed.
+// PERF-408 FIX: initDb() no longer creates orphaned connections
 initDb();
