@@ -4,13 +4,14 @@ import * as schema from "./schema";
 
 // Use in-memory database for testing. Otherwise, use the file database.
 const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : 'bank.db'
-
+// PERF-408: Resource Leak. No connection cleanup mechanism.
 const sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });
 
 const connections: Database.Database[] = [];
 
 export function initDb() {
+  // PERF-408: Resource Leak. New connection is created but never used.
   const conn = new Database(dbPath);
   connections.push(conn);
 
@@ -64,4 +65,6 @@ export function initDb() {
 }
 
 // Initialize database on import
+// PERF-408: Resource Leak. initDb() runs on module import
+// creating an orphaned connection that never gets closed.
 initDb();
