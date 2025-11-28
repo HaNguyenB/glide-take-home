@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { randomInt } from "crypto";
 import { protectedProcedure, router } from "../trpc";
 import { db } from "@/lib/db";
 import { accounts, transactions } from "@/lib/db/schema";
@@ -21,11 +22,9 @@ const serializeTransaction = (transaction: TransactionRecord) => ({
   ...transaction,
   amount: dollarsFromCents(transaction.amount),
 });
-
+// ISSUE: SEC-302. Account numbers now use cryptographically secure randomness.
 function generateAccountNumber(): string {
-  return Math.floor(Math.random() * 1000000000)
-    .toString()
-    .padStart(10, "0");
+  return randomInt(0, 10_000_000_000).toString().padStart(10, "0");
 }
 
 export const accountRouter = router({
