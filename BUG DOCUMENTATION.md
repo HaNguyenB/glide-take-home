@@ -29,12 +29,60 @@
     - Treat `ENCRYPTION_KEY` as mandatory config and document how to rotate it safely.
 
 ### PR 2 – XSS Vulnerability
-- Summary: Escape transaction descriptions and audit rendering paths for XSS.
+- Summary: Render descriptions as plain text so untrusted HTML never executes.
 - Tickets: [SEC-303](#ticket-sec-303)
+  - Root causes:
+    - `TransactionList` used `dangerouslySetInnerHTML` for `transaction.description`, injecting raw HTML.
+    - No sanitization, so any HTML/JS in descriptions ran in the browser.
+  - How it was fixed:
+    - Replaced `dangerouslySetInnerHTML` with `{transaction.description || "-"}` so React auto-escapes content.
+    - Left an inline comment documenting the fix.
+  - Tests:
+    - `components/TransactionList.test.tsx` ensures the component uses safe rendering (no `dangerouslySetInnerHTML`).
+    - `server/routers/account.test.ts` confirms backend returns raw data and catches malicious payload patterns.
+  - Preventive measures:
+    - Avoid `dangerouslySetInnerHTML` unless absolutely necessary; require sanitization + tests if used.
+    - Add a lint/review check for components that render user-generated content.
 
 ### PR 3 – Session Controls
-- Summary: Enforce single active session and invalidate near-expiring sessions.
-- Tickets: [SEC-304](#ticket-sec-304), [PERF-403](#ticket-perf-403)
+- Summary: Tighten how sessions are created, checked, and cleaned up.
+- Tickets: [SEC-304](#ticket-sec-304), [PERF-403](#ticket-perf-403), [PERF-402](#ticket-perf-402)
+
+  - **Ticket SEC-304 – Session Management**
+    - Root causes:
+      - Signup and login both created new sessions without deleting existing ones.
+      - The login page didn’t check if the user was already authenticated, so sessions could pile up.
+    - How it was fixed:
+      - Added checks so signup/login refuse to run if the requester already has an active session.
+      - When issuing a new token, existing sessions for that user are revoked first.
+    - Preventive measures:
+      - Treat “one active session per user” as a rule and test for it.
+      - Review any new auth flows to make sure they clean up old sessions before adding new ones.
+
+  - **Ticket PERF-403 – Session Expiry**
+    - Root causes:
+      - Session tokens were considered valid right up to the exact expiry time.
+      - There was no buffer to account for clock drift or near-expiry edge cases.
+    - How it was fixed:
+      - Tightened expiry checks so sessions close to or past their expiry are treated as invalid.
+      - Updated validation logic so “almost expired” sessions are refreshed or rejected instead of silently accepted.
+    - Preventive measures:
+      - Add tests around the expiry boundary (just before and just after) to lock in the behavior.
+      - Prefer central helpers for “isSessionValid” instead of ad-hoc timestamp checks.
+
+  - **Ticket PERF-402 – Logout Issues**
+    - Root causes:
+      - Logout only looked at `ctx.req.cookies`, which could be `{}` even when a `Cookie` header was present.
+      - Because of that, the token was never found or deleted, leaving the session row untouched.
+    - How it was fixed:
+      - Changed the logic to require a real `cookies.session` value; if it’s missing, fall back to parsing the `Cookie` header.
+      - Centralized token extraction into a shared helper so all logout paths use the same logic.
+    - Impacts:
+      - Sessions are now reliably deleted on logout, even in environments where cookies aren’t populated on `ctx.req`.
+      - Users can log out confidently, and “ghost sessions” no longer linger.
+    - Preventive measures:
+      - Use a shared `getSessionToken(ctx)` helper as the single source of truth for token extraction.
+      - Add tests for logout across different environments (cookies vs. headers) so this flow can’t silently break again.
 
 ### PR 4 – Resource Leak Fix
 - Summary: Close lingering DB connections and add monitoring alerts.
@@ -179,7 +227,7 @@
   2. Open the browser console and run the script below to check for unsafe rendering and attempt payload injection.
   3. Observe that injected HTML executes when descriptions are rendered without escaping.
 
-Testing script (click to expand):
+- Testing script (click to expand):
 
 <details>
   <summary>View XSS probe script</summary>
