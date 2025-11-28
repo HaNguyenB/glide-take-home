@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const users = sqliteTable("users", {
@@ -24,7 +24,7 @@ export const accounts = sqliteTable("accounts", {
     .notNull(),
   accountNumber: text("account_number").unique().notNull(),
   accountType: text("account_type").notNull(), // checking, savings
-  balance: real("balance").default(0).notNull(), // ISSUE: PERF-406: Balance Calculation. balance is stored as a float
+  balance: integer("balance").default(0).notNull(), // Stored in cents to avoid float drift
   status: text("status").default("pending"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
@@ -35,7 +35,7 @@ export const transactions = sqliteTable("transactions", {
     .references(() => accounts.id)
     .notNull(),
   type: text("type").notNull(), // deposit, withdrawal
-  amount: real("amount").notNull(), // ISSUE: PERF-406: Balance Calculation. amount is stored as a float
+  amount: integer("amount").notNull(), // Stored in cents
   description: text("description"), //Description are stored as plain text
   status: text("status").default("pending").notNull(),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),

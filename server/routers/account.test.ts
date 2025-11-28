@@ -26,7 +26,7 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
     await db.insert(transactions).values({
       accountId: account.id,
       type: 'deposit',
-      amount: 100.0,
+      amount: 10_000,
       description: xssPayload,
       status: 'completed',
       processedAt: new Date().toISOString(),
@@ -67,7 +67,7 @@ describe('account.getTransactions - XSS Vulnerability (SEC-303)', () => {
       await db.insert(transactions).values({
         accountId: account.id,
         type: 'deposit',
-        amount: 100.0,
+        amount: 10_000,
         description: payload,
         status: 'completed',
         processedAt: new Date().toISOString(),
@@ -187,8 +187,10 @@ describe('account.fundAccount - Balance Precision (PERF-406)', () => {
 
     const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
 
+    const expectedCents = deposits * Math.round(depositAmount * 100);
+
     expect(dbAccount).toBeTruthy();
-    expect(dbAccount?.balance).toBe(deposits * depositAmount);
+    expect(dbAccount?.balance).toBe(expectedCents);
   });
 
   it('should return the same balance that is stored in the database', async () => {
@@ -205,6 +207,7 @@ describe('account.fundAccount - Balance Precision (PERF-406)', () => {
 
     const dbAccount = await db.select().from(accounts).where(eq(accounts.id, account.id)).get();
 
-    expect(result.newBalance).toBe(dbAccount?.balance);
+    expect(dbAccount).toBeTruthy();
+    expect(result.newBalance).toBe(dbAccount!.balance / 100);
   });
 });
